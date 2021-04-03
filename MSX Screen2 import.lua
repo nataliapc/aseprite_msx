@@ -1,7 +1,12 @@
 --[[
 	####### Aseprite MSX Screen 2 importer script #######
+  Copyright by Natalia Pujol (2021)
+  This file is released under the terms of the MIT license.
 
-  by Natalia Pujol under MIT license.
+  MSX SCREEN 2 Mode: - 256x192px with 16 colors (fixed palette)
+                     - Color clash: 2 colors each 8x1 pixels
+                     - 64 sprites of 16x16px 1 color (or 256 of 8x8px 1 color)
+                     - 32 planes for visible sprites at same time
 
 	Inspired by https://github.com/kettek/aseprite-scripts/blob/master/import-apng.lua
 	like a source base.
@@ -67,12 +72,12 @@ local E = {
   PALETTE_NOT_FOUND = 5,
   TILESET_OVERFLOW = 6,
   strings = {
-    "End of file",
-    "Invalid MSX SC2 file...",
-    "Bad dimensions",
-    "Dimension overflow",
-    "MSX1 Palette not found",
-    "Tileset overflow",
+    "  End of file  ",
+    "  Invalid MSX SC2 file  ",
+    "  Bad dimensions  ",
+    "  Dimension overflow  ",
+    "  MSX1 Palette not found  ",
+    "  Tileset overflow  ",
   }
 }
 local Err = {
@@ -107,26 +112,37 @@ Reader = {
   file = nil,         -- file reader from io
   spr = nil,          -- Sprite object
   img = nil,          -- Image object
+  imgSpr = nil,       -- Image layer for Sprites
+  sprRender = false,  -- Flag to know if Sprite Layer must be created
   sc2 = {             -- SC2 data
     maxWidth = 256,
     maxHeight = 192,
+    sprSize = 32,       -- sprites size in bytes
     tilePatterns = nil,
     tileMap = nil,
-    sprAtribs = nil,
+    sprAttribs = nil,
     tileColors = nil,
     sprPatterns = nil,
   },
 }
 Reader.__index = Reader
 
+-- ############################
 function Reader:new(o)
   local rdr = {}
   setmetatable(rdr, Reader)
   rdr.filename = o.filename
   rdr.file = io.open(o.filename, "rb")
+  rdr.sprRender = o.spr_render
+  if o.spr16 then
+    rdr.sc2.sprSize = 32
+  else
+    rdr.sc2.sprSize = 8
+  end
   return rdr
 end
 
+-- ############################
 function Reader:decode()
   -- check header
   local err = self:checkHeader()
@@ -143,9 +159,16 @@ function Reader:decode()
   err = self:paintBitmapScreen()
   if err ~= nil then return err end
 
+  -- paint sprites
+  if self.sc2.sprPatterns ~= nil then
+    err = self:paintSpriteLayers()
+    if err ~= nil then return err end
+  end
+
   return err
 end
 
+-- ############################
 function Reader:checkHeader()
   local buffer = self.file:read(3)
   if buffer == nil then return Error(E.EOF) end
@@ -156,19 +179,43 @@ function Reader:checkHeader()
   return nil
 end
 
+-- ############################
 function Reader:createImage()
   self.spr = Sprite(self.sc2.maxWidth, self.sc2.maxHeight, ColorMode.INDEXED)
   self.spr.filename = self.filename .. ".png"
+
+  -- MSX Palette
   local palette = Palette{ fromResource="MSX1" }
   if palette == nil then
     self.spr:close()
     return Error(E.PALETTE_NOT_FOUND)
   end
   self.spr:setPalette(palette)
-  self.filename = "image.png"
-  self.img = self.spr.cels[1].image
+
+  -- Background Layer
+  app.useTool{
+    tool='paint_bucket',
+    color=1,
+    points={ Point(0, 0) }
+  }
+  self.spr.layers[1].name = "Layer Bgrnd"
+
+  -- Tiles Layer
+  local layer = self.spr:newLayer()
+  layer.name = "Layer Tiles"
+  local cel = self.spr:newCel(layer, self.spr.frames[1])
+  self.img = cel.image
+
+  -- Sprite Layer
+  if self.sprRender then
+    layer = self.spr:newLayer()
+    layer.name = "Layer Sprites"
+    cel = self.spr:newCel(layer, self.spr.frames[1])
+    self.imgSpr = cel.image
+  end
 end
 
+-- ############################
 function Reader:parseVRAM()
   -- Tile Patterns (1 byte = 8 horizontal pixels)
   self.sc2.tilePatterns = self.file:read(0x1800)
@@ -177,17 +224,20 @@ function Reader:parseVRAM()
   self.sc2.tileMap = self.file:read(0x300)
   if self.sc2.tileMap == nil then return Error(E.EOF) end
   -- Sprites Attributes
-  self.sc2.sprAtribs = self.file:read(0x80)
-  if self.sc2.sprAtribs == nil then return Error(E.EOF) end
+  self.sc2.sprAttribs = self.file:read(0x80)
+  if self.sc2.sprAttribs == nil then return Error(E.EOF) end
   -- Unused VRAM
   self.file:read(0x480)
   -- Tile Colors (1 byte = 2 colors (2x4 bits) for each tile pattern byte)
   self.sc2.tileColors = self.file:read(0x1800)
   if self.sc2.tileColors == nil then return Error(E.EOF) end
   -- Sprites Patterns
-  self.sc2.sprPatterns = self.file:read(0x800)
+  if self.sprRender then
+    self.sc2.sprPatterns = self.file:read(0x800)
+  end
 end
 
+-- ############################
 function Reader:paintBitmapScreen()
   local tile = 0
   local offset = 0
@@ -211,12 +261,11 @@ function Reader:paintBitmapScreen()
   end
 end
 
+-- ############################
 function Reader:paintBitmapTile(x, y, offset)
   if offset >= self.sc2.tileColors:len() then
     return Error(E.TILESET_OVERFLOW);
   end
-
-  local colPixel = 0
 
   for yt=0,7 do
     local pattern = self.sc2.tilePatterns:byte(offset + yt + 1)
@@ -224,20 +273,73 @@ function Reader:paintBitmapTile(x, y, offset)
     local fgcol = (color >> 4) & 0x0f
     local bgcol = (color & 0x0f)
 
-    for xt=0,7 do
-      if (pattern & 1) == 1 then
-        colPixel = fgcol
-      else
-        colPixel = bgcol
-      end
-      self.img:putPixel(x+7-xt, y+yt, colPixel)
-      pattern = pattern // 2
-    end
+    self:paintByte(self.img, x, y+yt, pattern, fgcol, bgcol)
   end
 
   return nil
 end
 
+-- ############################
+function Reader:paintSpriteLayers()
+  local attr = ""
+  local sprData = ""
+  for l=31,0,-1 do
+    attr = self:getSpriteLayerAttribs(l)
+    sprData = self:getSpritePattern(attr.patternNum)
+    if attr.color & 0x80 == 0x80 then
+      attr.x = attr.x - 32
+    end
+    if attr.y > self.sc2.maxHeight then
+      attr.y = attr.y - 256
+    end
+    attr.y = attr.y + 1
+    attr.color = attr.color & 0x7f
+    self:paintSprite(attr.x, attr.y, attr.color, sprData)
+  end
+end
+
+-- ############################
+function Reader:paintSprite(x, y, color, data)
+  local pos = 1
+  for xp=x,x+8,8 do
+    for yp=y,y+15 do
+      if yp==y+8 and self.sc2.sprSize==8 then return end
+      self:paintByte(self.imgSpr, xp, yp, data:byte(pos), color, 0)
+      pos = pos + 1
+    end
+  end
+end
+
+-- ############################
+function Reader:getSpritePattern(num)
+  local pos = num * 8 + 1
+  return self.sc2.sprPatterns:sub(pos, pos + self.sc2.sprSize - 1)
+end
+
+-- ############################
+function Reader:getSpriteLayerAttribs(layer)
+  layer = layer * 4 + 1
+  local bin = self.sc2.sprAttribs:sub(layer, layer+3)
+  return { y=bin:byte(1), x=bin:byte(2), patternNum=bin:byte(3), color=bin:byte(4) }
+end
+
+-- ############################
+function Reader:paintByte(img, x, y, pattern, fgcol, bgcol)
+  local colPixel = 0
+  if pattern == nil then return end
+
+  for xp=x+7,x,-1 do
+    if (pattern & 1) == 1 then
+      colPixel = fgcol
+    else
+      colPixel = bgcol
+    end
+    if colPixel > 0  and xp >= 0 and y >= 0 and xp < self.sc2.maxWidth and y < self.sc2.maxHeight then
+      img:putPixel(xp, y, colPixel)
+    end
+    pattern = pattern // 2
+  end
+end
 
 
 --! Script Body !--
@@ -245,29 +347,53 @@ if not app.isUIAvailable then
   return
 end
 
-local dlg = Dialog()
-local data = dlg
-                  :file{
-                    id="sc2file",
-                    title="Open file",
-                    label="Select a MSX Screen2 file:",
-                    open=true,
-                    filetypes={ "SC2" } }
-                  :separator()
-                  :button{ id="ok", text="OK" }
-                  :button{ id="cancel", text="Cancel" }
-                  :show().data
-if data.ok then
-  if data.sc2file == "" then
-    app.alert("Select a file first")
-    return
+local dlg = nil
+local data = nil
+local cancel = false
+repeat
+  dlg = Dialog("Import MSX image file")
+  data = dlg
+            :file{
+              id="filename",
+              label="MSX image file:",
+              open=true,
+              filetypes={ "SC2" } }
+            :separator()
+            :check{ id="spr_render",
+              label="Render sprites",
+              selected=true,
+              onclick = function()
+                dlg:modify{ id="spr8", enabled=dlg.data.spr_render }
+                dlg:modify{ id="spr16", enabled=dlg.data.spr_render }
+              end }
+            :radio{ id="spr8",
+              label="Sprite size",
+              text="8x8 pixels",
+              selected=false }
+            :radio{ id="spr16",
+              text="16x16 pixels",
+              selected=true }
+            :separator()
+            :button{ id="ok", text="Ok" }
+            :button{ id="cancel", text="Cancel" }
+            :show().data
+
+  if data.ok and data.filename == "" then 
+    app.alert("  Select a file first  ")
   end
-  -- Load our SC2 image so we can get a base idea for setup.
-  -- From here we can read sprite.filename into our SC2 reader.
-  local rdr = Reader:new{ filename = data.sc2file }
-  local err = rdr:decode()
-  if err ~= nil then
-    app.alert(err:string())
+until data.filename ~= "" or data.cancel
+
+
+if data.ok then
+  if app.fs.isFile(data.filename) == false then
+    app.alert("  File not found  ")
+  else
+    -- Load our SC2 image so we can get a base idea for setup.
+    -- From here we can read sprite.filename into our SC2 reader.
+    local rdr = Reader:new(data)
+    local err = rdr:decode()
+    if err ~= nil then
+      app.alert(err:string())
+    end
   end
 end
-
