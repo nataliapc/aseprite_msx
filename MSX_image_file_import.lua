@@ -13,6 +13,33 @@
  --]]
 
 
+function init(plugin)
+  print("MSX image file import plugin initialized...")
+
+--  if plugin.preferences.sprRender == nil then
+--    plugin.preferences.sprRender = true
+--  end
+--  if plugin.preferences.sprSize == nil then
+--    plugin.preferences.spr16 = true
+--  end
+
+  plugin:newCommand{
+    id="msx_image_import",
+    title="Import MSX image file",
+    group="file_import",
+    onclick=function()
+      startDialog()
+    end
+  }
+
+end
+
+function exit(plugin)
+  print("MSX image file import plugin closing...")
+end
+
+
+-- ########################################################
 
 --[[ Binary
 Binary provides a few helper function for decoding and comparing bytes.
@@ -59,6 +86,7 @@ function Binary.compare(a, b)
 end
 
 
+-- ########################################################
 
 --[[ Err / Error
 The Err type and helper creator Error(type, msg) provide an interface for
@@ -101,6 +129,7 @@ function Error(t, m)
 end
 
 
+-- ########################################################
 
 --[[ Reader
 The Reader is the state machine that is responsible for decoding an SC2
@@ -108,36 +137,38 @@ file into the active Aseprite sprite.
 --]]
 local msxHeader = "\xFE\x00\x00"
 Reader = {
-  filename = nil,     -- filename of the SC2 file
+  scrMode = 0,        -- screen mode: 2, 3, 4, 5, 6, 7, 8, 10 or 12
+  filename = nil,     -- filename of the MSX file
   file = nil,         -- file reader from io
   spr = nil,          -- Sprite object
   img = nil,          -- Image object
   imgSpr = nil,       -- Image layer for Sprites
   sprRender = false,  -- Flag to know if Sprite Layer must be created
+  sprSize = 32,       -- sprites size in bytes
   sc2 = {             -- SC2 data
     maxWidth = 256,
     maxHeight = 192,
-    sprSize = 32,       -- sprites size in bytes
-    tilePatterns = nil,
     tileMap = nil,
-    sprAttribs = nil,
+    tilePatterns = nil,
     tileColors = nil,
+    sprAttribs = nil,
     sprPatterns = nil,
   },
 }
-Reader.__index = Reader
 
 -- ############################
 function Reader:new(o)
   local rdr = {}
-  setmetatable(rdr, Reader)
+  setmetatable(rdr, self)
+  self.__index = self
+
   rdr.filename = o.filename
   rdr.file = io.open(o.filename, "rb")
   rdr.sprRender = o.spr_render
   if o.spr16 then
-    rdr.sc2.sprSize = 32
+    rdr.sprSize = 32
   else
-    rdr.sc2.sprSize = 8
+    rdr.sprSize = 8
   end
   return rdr
 end
@@ -303,7 +334,7 @@ function Reader:paintSprite(x, y, color, data)
   local pos = 1
   for xp=x,x+8,8 do
     for yp=y,y+15 do
-      if yp==y+8 and self.sc2.sprSize==8 then return end
+      if yp==y+8 and self.sprSize==8 then return end
       self:paintByte(self.imgSpr, xp, yp, data:byte(pos), color, 0)
       pos = pos + 1
     end
@@ -313,7 +344,7 @@ end
 -- ############################
 function Reader:getSpritePattern(num)
   local pos = num * 8 + 1
-  return self.sc2.sprPatterns:sub(pos, pos + self.sc2.sprSize - 1)
+  return self.sc2.sprPatterns:sub(pos, pos + self.sprSize - 1)
 end
 
 -- ############################
@@ -341,59 +372,132 @@ function Reader:paintByte(img, x, y, pattern, fgcol, bgcol)
   end
 end
 
+-- ########################################################
 
---! Script Body !--
-if not app.isUIAvailable then
-  return
-end
+function showFileInfo(dlg)
+  local newType = "<unknown file format>"
+  local newInfo = ""
+  local newOkEnabled = false
+  local newInfoVisible = false
 
-local dlg = nil
-local data = nil
-local cancel = false
-repeat
-  dlg = Dialog("Import MSX image file")
-  data = dlg
-            :file{
-              id="filename",
-              label="MSX image file:",
-              open=true,
-              filetypes={ "SC2" } }
-            :separator()
-            :check{ id="spr_render",
-              label="Render sprites",
-              selected=true,
-              onclick = function()
-                dlg:modify{ id="spr8", enabled=dlg.data.spr_render }
-                dlg:modify{ id="spr16", enabled=dlg.data.spr_render }
-              end }
-            :radio{ id="spr8",
-              label="Sprite size",
-              text="8x8 pixels",
-              selected=false }
-            :radio{ id="spr16",
-              text="16x16 pixels",
-              selected=true }
-            :separator()
-            :button{ id="ok", text="Ok" }
-            :button{ id="cancel", text="Cancel" }
-            :show().data
-
-  if data.ok and data.filename == "" then 
-    app.alert("  Select a file first  ")
-  end
-until data.filename ~= "" or data.cancel
-
-
-if data.ok then
-  if app.fs.isFile(data.filename) == false then
-    app.alert("  File not found  ")
+  if dlg.data.filename == nil then
+    newType = "<none>"
   else
-    -- Load our SC2 image so we can get a base idea for setup.
-    -- From here we can read sprite.filename into our SC2 reader.
-    local rdr = Reader:new(data)
-    local err = rdr:decode()
-    if err ~= nil then
-      app.alert(err:string())
+    local ext = dlg.data.filename:upper():sub(-4)
+
+    if ext:sub(1,3) == ".SC" then
+      ext = ext:sub(-1)
+      newInfo = "<not implemented yet>"
+      -- SC2
+      if ext == "2" then
+        newType = "MSX Screen 2 file"
+        newInfo = "256x192 16 fixed colors"
+        newOkEnabled = true
+      -- SC3
+      elseif ext == "3" then
+        newType = "MSX Screen 3 file"
+        -- newInfo = "64x48 16 fixed colors"
+      -- SC4
+      elseif ext == "4" then
+        newType = "MSX Screen 4 file"
+        -- newInfo = "256x192 16col from 512"
+      -- SC5
+      elseif ext == "5" then
+        newType = "MSX Screen 5 file"
+        -- newInfo = "256x212 16col from 512"
+      -- SC6
+      elseif ext == "6" then
+        newType = "MSX Screen 6 file"
+        -- newInfo = "512x212 4col from 512"
+      -- SC7
+      elseif ext == "7" then
+        newType = "MSX Screen 7 file"
+        -- newInfo = "512x212 16col from 512"
+      -- SC8
+      elseif ext == "8" then
+        newType = "MSX Screen 8 file"
+        -- newInfo = "256x212 256col"
+      -- SCA
+      elseif ext == "A" then
+        newType = "MSX Screen 10 file"
+        -- newInfo = "256x212 12k colors"
+      -- SCC
+      elseif ext == "C" then
+        newType = "MSX Screen 12 file"
+        -- newInfo = "256x212 19k colors"
+      end
     end
   end
+
+  if newInfo ~= "" then
+    newInfoVisible = true
+  end
+
+  dlg:modify{ id="file_type", text=newType }
+  dlg:modify{ id="file_info", text=newInfo, visible=newInfoVisible }
+  dlg:modify{ id="ok", enabled=newOkEnabled }
+end
+
+--! Script Body !--
+function startDialog()
+
+  if not app.isUIAvailable then
+    return
+  end
+
+  local dlg = nil
+  local data = nil
+  local cancel = false
+  repeat
+    dlg = Dialog("Import MSX image file")
+    data = dlg
+              :file{
+                id="filename",
+                label="MSX image file:",
+                open=true,
+                filetypes={ "SC2", "SC3", "SC4", "SC5", "SC6", "SC7", "SC8", "SCA", "SCC" },
+                onchange=function() showFileInfo(dlg) end }
+              :label{ id="file_type", label="Selected", text="<none>" }
+              :newrow()
+              :label{ id="file_info", text="", visible=false }
+              :separator()
+              :check{ id="spr_render",
+                label="Render sprites",
+                selected=true,
+                onclick = function()
+                  dlg:modify{ id="spr8", enabled=dlg.data.spr_render }
+                  dlg:modify{ id="spr16", enabled=dlg.data.spr_render }
+                end }
+              :radio{ id="spr8",
+                label="Sprite size",
+                text="8x8 pixels",
+                selected=false }
+              :radio{ id="spr16",
+                text="16x16 pixels",
+                selected=true }
+              :separator()
+              :button{ id="ok", text="Ok", enabled=false }
+              :button{ id="cancel", text="Cancel" }
+              :label{ label="by NataliaPC'2021" }
+              :show().data
+
+    if data.ok and data.filename == "" then 
+      app.alert("  Select a file first  ")
+    end
+  until data.filename ~= "" or data.cancel or (data.cancel or data.ok)==false
+
+
+  if data.ok then
+    if app.fs.isFile(data.filename) == false then
+      app.alert("  File not found  ")
+    else
+      -- From here we can read sprite.filename into our MSX reader.
+      local rdr = Reader:new(data)
+      local err = rdr:decode()
+      if err ~= nil then
+        app.alert(err:string())
+      end
+    end
+  end
+
 end
