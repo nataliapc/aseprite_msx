@@ -39,6 +39,24 @@ function exit(plugin)
 end
 
 
+
+-- ########################################################
+
+--[[ Binary
+Binary provides a few helper function for decoding and comparing bytes.
+--]]
+Array = {}
+
+function Array:fill(size, value)
+  out = {}
+  for i=1,size do
+    out[i] = value
+  end
+  return out
+end
+
+
+
 -- ########################################################
 
 --[[ Binary
@@ -86,6 +104,7 @@ function Binary.compare(a, b)
 end
 
 
+
 -- ########################################################
 
 --[[ Err / Error
@@ -101,7 +120,7 @@ local E = {
   TILESET_OVERFLOW = 6,
   strings = {
     "  End of file  ",
-    "  Invalid MSX SC2 file  ",
+    "  Invalid MSX file  ",
     "  Bad dimensions  ",
     "  Dimension overflow  ",
     "  MSX1 Palette not found  ",
@@ -129,51 +148,79 @@ function Error(t, m)
 end
 
 
+
+-- ########################################################
+--     Reader class
+--  The Reader is the state machine that is responsible for decoding a 
+--  MSX file into the active Aseprite sprite.
 -- ########################################################
 
---[[ Reader
-The Reader is the state machine that is responsible for decoding an SC2
-file into the active Aseprite sprite.
---]]
-local msxHeader = "\xFE\x00\x00"
 Reader = {
-  scrMode = 0,        -- screen mode: 2, 3, 4, 5, 6, 7, 8, 10 or 12
-  filename = nil,     -- filename of the MSX file
-  file = nil,         -- file reader from io
-  spr = nil,          -- Sprite object
-  img = nil,          -- Image object
-  imgSpr = nil,       -- Image layer for Sprites
-  sprRender = false,  -- Flag to know if Sprite Layer must be created
-  sprSize = 32,       -- sprites size in bytes
-  sc2 = {             -- SC2 data
+  msxHeader = "\xFE\x00\x00",
+  filename = nil,       -- filename of the MSX file
+  file = nil,           -- file reader from io
+  spr = nil,            -- Sprite object
+  img = nil,            -- Image object
+  imgSpr = nil,         -- Image layer for Sprites
+  sprRender = false,    -- Flag to know if Sprite Layer must be created
+  sprSize = 32,         -- sprites size in bytes
+  transpColor = 16,     -- Transparent color
+
+  address = {
+    tileMap = nil,
+    tilePat = nil,
+    tileCol = nil,
+    sprAttr = nil,
+    sprPat  = nil,
+    sprCol  = nil,      -- only MSX2 or above
+    palette = nil,      -- only MSX2 or above
+  },
+
+  screen = {            -- MSX data
+    mode = -1,          -- screen mode: 1, 2, 3, 4, 5, 6, 7, 8, 10 or 12
     maxWidth = 256,
     maxHeight = 192,
-    tileMap = nil,
-    tilePatterns = nil,
-    tileColors = nil,
-    sprAttribs = nil,
-    sprPatterns = nil,
+    tileMap = nil,      -- used by Screen 1..12
+    tilePatterns = nil, -- used by Screen 1..4
+    tileColors = nil,   -- used by Screen 1..4
+    sprAttribs = nil,   -- used by Screen 1..12
+    sprPatterns = nil,  -- used by Screen 1..12
+    sprColors = nil,    -- used by Screen 4..12
+    palette = nil,      -- used by Screen 4..7 and 10
   },
 }
 
--- ############################
+-- ============================
 function Reader:new(o)
   local rdr = {}
   setmetatable(rdr, self)
   self.__index = self
 
-  rdr.filename = o.filename
-  rdr.file = io.open(o.filename, "rb")
-  rdr.sprRender = o.spr_render
-  if o.spr16 then
-    rdr.sprSize = 32
-  else
-    rdr.sprSize = 8
+  if o ~= nil then
+    rdr:config(o)
   end
+
   return rdr
 end
 
--- ############################
+-- ============================
+function Reader:config(o)
+  --  Screen:         1    2    3    4    5    6    7    8   10   12
+  local widths  = { 256, 256, 256, 256, 256, 512, 512, 256, 256, 256 }
+  local heights = { 192, 192, 192, 192, 212, 212, 212, 212, 212, 212 }
+
+  self.filename = o.filename
+  self.file = io.open(o.filename, "rb")
+  self.sprRender = o.spr_render
+
+  if o.spr16 then self.sprSize = 32 else self.sprSize = 8 end
+
+  self.screen.mode = o.scrMode
+  self.screen.maxWidth = widths[o.scrMode]
+  self.screen.maxHeight = heights[o.scrMode]
+end
+
+-- ============================
 function Reader:decode()
   -- check header
   local err = self:checkHeader()
@@ -182,16 +229,20 @@ function Reader:decode()
   -- create the new image
   self:createImage()
 
-  -- parse the SC2
+  -- parse the MSX file
   err = self:parseVRAM()
   if err ~= nil then return err end
 
-  -- paint tiles
+  -- set de custom palette if any
+  err = self:setPalette()
+  if err ~= nil then return err end
+
+  -- paint image
   err = self:paintBitmapScreen()
   if err ~= nil then return err end
 
   -- paint sprites
-  if self.sc2.sprPatterns ~= nil then
+  if self.screen.sprPatterns ~= nil then
     err = self:paintSpriteLayers()
     if err ~= nil then return err end
   end
@@ -199,20 +250,19 @@ function Reader:decode()
   return err
 end
 
--- ############################
+-- ============================
 function Reader:checkHeader()
   local buffer = self.file:read(3)
   if buffer == nil then return Error(E.EOF) end
-  if Binary.compare(buffer, msxHeader) ~= true then
+  if Binary.compare(buffer, self.msxHeader) ~= true then
     return Error(E.NOT_MSX_FILE)
   end
-  self.file:read(4)     -- skip rest of the header
   return nil
 end
 
--- ############################
+-- ============================
 function Reader:createImage()
-  self.spr = Sprite(self.sc2.maxWidth, self.sc2.maxHeight, ColorMode.INDEXED)
+  self.spr = Sprite(self.screen.maxWidth, self.screen.maxHeight, ColorMode.INDEXED)
   self.spr.filename = self.filename .. ".png"
 
   -- MSX Palette
@@ -221,21 +271,16 @@ function Reader:createImage()
     self.spr:close()
     return Error(E.PALETTE_NOT_FOUND)
   end
+  palette:resize(17)
+  palette:setColor(0, Color{ r=0, g=0, b=0, a=255 } )
+  palette:setColor(self.transpColor, Color{ r=0, g=0, b=0, a=0 } )
   self.spr:setPalette(palette)
+  self.spr.transparentColor = self.transpColor
 
-  -- Background Layer
-  app.useTool{
-    tool='paint_bucket',
-    color=1,
-    points={ Point(0, 0) }
-  }
-  self.spr.layers[1].name = "Layer Bgrnd"
-
-  -- Tiles Layer
-  local layer = self.spr:newLayer()
-  layer.name = "Layer Tiles"
-  local cel = self.spr:newCel(layer, self.spr.frames[1])
-  self.img = cel.image
+  -- Bitmap Layer
+  self.spr.layers[1].name = "Layer Bitmap"
+  self.img = self.spr.cels[1].image
+  self.img:clear(self.transpColor)
 
   -- Sprite Layer
   if self.sprRender then
@@ -243,32 +288,29 @@ function Reader:createImage()
     layer.name = "Layer Sprites"
     cel = self.spr:newCel(layer, self.spr.frames[1])
     self.imgSpr = cel.image
+    self.imgSpr:clear(self.transpColor)
   end
 end
 
--- ############################
+-- ============================
 function Reader:parseVRAM()
-  -- Tile Patterns (1 byte = 8 horizontal pixels)
-  self.sc2.tilePatterns = self.file:read(0x1800)
-  if self.sc2.tilePatterns == nil then return Error(E.EOF) end
   -- Tile Map
-  self.sc2.tileMap = self.file:read(0x300)
-  if self.sc2.tileMap == nil then return Error(E.EOF) end
+  self.screen.tileMap = self:readChunk(self.address.tileMap)
+  -- Tile Patterns
+  self.screen.tilePatterns = self:readChunk(self.address.tilePat)
+  -- Tile Colors
+  self.screen.tileColors = self:readChunk(self.address.tileCol)
   -- Sprites Attributes
-  self.sc2.sprAttribs = self.file:read(0x80)
-  if self.sc2.sprAttribs == nil then return Error(E.EOF) end
-  -- Unused VRAM
-  self.file:read(0x480)
-  -- Tile Colors (1 byte = 2 colors (2x4 bits) for each tile pattern byte)
-  self.sc2.tileColors = self.file:read(0x1800)
-  if self.sc2.tileColors == nil then return Error(E.EOF) end
+  self.screen.sprAttribs = self:readChunk(self.address.sprAttr)
   -- Sprites Patterns
-  if self.sprRender then
-    self.sc2.sprPatterns = self.file:read(0x800)
-  end
+  self.screen.sprPatterns = self:readChunk(self.address.sprPat)
+  -- Sprites Colors
+  self.screen.sprColors = self:readChunk(self.address.sprCol)
+  -- Palette
+  self.screen.palette = self:readChunk(self.address.palette)
 end
 
--- ############################
+-- ============================
 function Reader:paintBitmapScreen()
   local tile = 0
   local offset = 0
@@ -277,7 +319,7 @@ function Reader:paintBitmapScreen()
   local err = nil
 
   for t=1,0x300 do
-    tile = self.sc2.tileMap:byte(t)
+    tile = self.screen.tileMap:byte(t)
     offset = 0x800 * math.floor(y/64) -- banks offset
     offset = offset + tile * 8        -- adding tile offset
 
@@ -285,96 +327,259 @@ function Reader:paintBitmapScreen()
     if err ~= nil then return err end
 
     x = x + 8
-    if x == self.sc2.maxWidth then
+    if x == self.screen.maxWidth then
       x = 0
       y = y + 8
     end
   end
 end
 
--- ############################
-function Reader:paintBitmapTile(x, y, offset)
-  if offset >= self.sc2.tileColors:len() then
-    return Error(E.TILESET_OVERFLOW);
-  end
 
-  for yt=0,7 do
-    local pattern = self.sc2.tilePatterns:byte(offset + yt + 1)
-    local color = self.sc2.tileColors:byte(offset + yt + 1)
-    local fgcol = (color >> 4) & 0x0f
-    local bgcol = (color & 0x0f)
+-- ########################################################
+--     Sprite functions
 
-    self:paintByte(self.img, x, y+yt, pattern, fgcol, bgcol)
-  end
-
-  return nil
-end
-
--- ############################
+-- ============================
 function Reader:paintSpriteLayers()
   local attr = ""
-  local sprData = ""
-  for l=31,0,-1 do
-    attr = self:getSpriteLayerAttribs(l)
-    sprData = self:getSpritePattern(attr.patternNum)
-    if attr.color & 0x80 == 0x80 then
-      attr.x = attr.x - 32
-    end
-    if attr.y > self.sc2.maxHeight then
+  local sprPat = ""
+  for layer=31,0,-1 do
+    attr = self:getSpriteLayerAttribs(layer)
+    sprPat = self:getSpritePattern(attr.patternNum)
+    -- if attr.color & 0x80 == 0x80 then
+    --   attr.x = attr.x - 32
+    -- end
+    if attr.y > self.screen.maxHeight then
       attr.y = attr.y - 256
     end
     attr.y = attr.y + 1
-    attr.color = attr.color & 0x7f
-    self:paintSprite(attr.x, attr.y, attr.color, sprData)
+    self:paintSprite(attr, sprPat)
   end
 end
 
--- ############################
-function Reader:paintSprite(x, y, color, data)
+-- ============================
+function Reader:paintSprite(attr, data)
   local pos = 1
-  for xp=x,x+8,8 do
-    for yp=y,y+15 do
-      if yp==y+8 and self.sprSize==8 then return end
-      self:paintByte(self.imgSpr, xp, yp, data:byte(pos), color, 0)
+  local offset
+  for xp=attr.x,attr.x+8,8 do
+    for line=0,15 do
+      if line==8 and self.sprSize==8 then return end
+      self:paintByte(self.imgSpr, xp, attr.y+line, data:byte(pos), attr.color[line+1], self.transpColor, attr.orColor[line+1])
       pos = pos + 1
     end
   end
 end
 
--- ############################
+-- ============================
 function Reader:getSpritePattern(num)
   local pos = num * 8 + 1
-  return self.sc2.sprPatterns:sub(pos, pos + self.sprSize - 1)
+  return self.screen.sprPatterns:sub(pos, pos + self.sprSize - 1)
 end
 
--- ############################
+-- ============================
 function Reader:getSpriteLayerAttribs(layer)
-  layer = layer * 4 + 1
-  local bin = self.sc2.sprAttribs:sub(layer, layer+3)
-  return { y=bin:byte(1), x=bin:byte(2), patternNum=bin:byte(3), color=bin:byte(4) }
+  return self:_getSpriteLayerAttribsMode1(layer)
 end
 
--- ############################
-function Reader:paintByte(img, x, y, pattern, fgcol, bgcol)
+-- ============================
+function Reader:_getSpriteLayerAttribsMode1(layer)
+  layer = layer * 4 + 1
+  local bin = self.screen.sprAttribs:sub(layer, layer+3)
+  local colorByte = bin:byte(4) or 0
+  return { 
+    y = bin:byte(1) or 209,
+    x = bin:byte(2) or 0,
+    patternNum = bin:byte(3) or 0,
+    ec = Array:fill(16, (colorByte & 0x80) and true or false),
+    color = Array:fill(16, colorByte & 0x0f),
+    orColor = Array:fill(16, false),
+  }
+end
+
+-- ============================
+function Reader:_getSpriteLayerAttribsMode2(layer)
+  local attr = self:_getSpriteLayerAttribsMode1(layer)
+  -- añadimos atributos modo2 de la tabla sprColors
+  layer = layer * 16 + 1
+  local colors = self.screen.sprColors:sub(layer, layer+15)
+  local aux
+  for line=1,16 do
+    aux = colors:byte(line) or 0
+    attr.color[line] = aux & 0x0f
+    attr.ec[line] = (aux & 0x80) and true or false
+    attr.orColor[line] = (aux & 0x40) and true or false
+  end
+  return attr
+end
+
+
+-- ########################################################
+--     Aux functions
+
+-- ============================
+function Reader:seekPos(pos)
+  self.file:seek("set", 7 + pos)
+end
+
+-- ============================
+function Reader:readChunk(addrStruct)
+  if addrStruct ~= nil then
+    self:seekPos(addrStruct.pos)
+    return self.file:read(addrStruct.size)
+  end
+  return nil
+end
+
+-- ============================
+function Reader:setPalette()
+  -- function overrided for MSX2 or above classes
+end
+
+-- ============================
+function Reader:_parsePaletteMSX2()
+  if self.screen.palette ~= nil then
+    local palette = Palette(17)
+    local r, g, b
+
+    -- the file palette is RGB444 but the MSX hardware is RGB333
+    for i=0,15 do
+      -- read palette from file & create RGB444
+      r = self.screen.palette:byte(i*2+1)
+      g = self.screen.palette:byte(i*2+2)
+      b = r & 0x0f
+      r = r >> 4
+      -- RGB444 -> RGB888
+      r = r * 255 // 7
+      g = g * 255 // 7
+      b = b * 255 // 7
+      palette:setColor(i, Color{ r=r, g=g, b=b })
+    end
+    -- set palette to the aseprite image
+    self.spr:setPalette(palette)
+  end
+end
+
+
+
+-- ########################################################
+--     ReaderTiled (abstract)
+-- ########################################################
+
+ReaderTiled = Reader:new()
+
+function ReaderTiled:new(o)
+  rdr = Reader:new(o)
+  setmetatable(rdr, self)
+  self.__index = self
+  return rdr
+end
+
+-- ============================
+function ReaderTiled:paintBitmapTile(x, y, offset)
+  if offset >= self.screen.tileColors:len() then
+    return Error(E.TILESET_OVERFLOW);
+  end
+
+  for yt=0,7 do
+    local pattern = self.screen.tilePatterns:byte(offset + yt + 1)
+    local color = self.screen.tileColors:byte(offset + yt + 1)
+    local fgcol = (color >> 4) & 0x0f
+    local bgcol = (color & 0x0f)
+
+    self:paintByte(self.img, x, y+yt, pattern, fgcol, bgcol, false)
+  end
+
+  return nil
+end
+
+-- ============================
+function ReaderTiled:paintByte(img, x, y, pattern, fgcol, bgcol, isOrEnabled)
   local colPixel = 0
   if pattern == nil then return end
 
   for xp=x+7,x,-1 do
+    -- Pixel value
     if (pattern & 1) == 1 then
       colPixel = fgcol
+      -- OR colors
+      if isOrEnabled then
+        local oldColor = img:getPixel(xp, y)
+        if oldColor >= self.transpColor then oldColor = 0 end
+        colPixel = colPixel | oldColor
+      end
     else
       colPixel = bgcol
     end
-    if colPixel > 0  and xp >= 0 and y >= 0 and xp < self.sc2.maxWidth and y < self.sc2.maxHeight then
+    if colPixel ~= self.transpColor and xp >= 0 and y >= 0 and xp < self.screen.maxWidth and y < self.screen.maxHeight then
       img:putPixel(xp, y, colPixel)
     end
     pattern = pattern // 2
   end
 end
 
+
+
+-- ########################################################
+--     ReaderSC2
+-- ########################################################
+
+ReaderSC2 = ReaderTiled:new()
+
+function ReaderSC2:new(o)
+  rdr = ReaderTiled:new(o)
+  setmetatable(rdr, self)
+  self.__index = self
+
+  self.address.tilePat = { pos=0x0000, size=0x1800 }
+  self.address.tileMap = { pos=0x1800, size=0x300 }
+  self.address.sprAttr = { pos=0x1b00, size=0x80 }
+  self.address.tileCol = { pos=0x2000, size=0x1800 }
+  self.address.sprPat  = { pos=0x3800, size=0x800 }
+
+  return rdr
+end
+
+
+
+-- ########################################################
+--     ReaderSC4
+-- ########################################################
+
+ReaderSC4 = ReaderTiled:new()
+
+function ReaderSC4:new(o)
+  rdr = ReaderTiled:new(o)
+  setmetatable(rdr, self)
+  self.__index = self
+
+  self.address.tilePat = { pos=0x0000, size=0x1800 }
+  self.address.tileMap = { pos=0x1800, size=0x300 }
+  self.address.palette = { pos=0x1b80, size=0x20 }
+  self.address.sprCol  = { pos=0x1c00, size=0x200 }
+  self.address.sprAttr = { pos=0x1e00, size=0x80 }
+  self.address.tileCol = { pos=0x2000, size=0x1800 }
+  self.address.sprPat  = { pos=0x3800, size=0x800 }
+
+  return rdr
+end
+
+-- ============================
+function ReaderSC4:setPalette()
+  self:_parsePaletteMSX2()
+end
+
+-- ============================
+function ReaderSC4:getSpriteLayerAttribs(layer)
+  return self:_getSpriteLayerAttribsMode2(layer)
+end
+
+
+
+-- ########################################################
+--     Dialog management
 -- ########################################################
 
 function showFileInfo(dlg)
+  local ret = nil
   local newType = "<unknown file format>"
   local newInfo = ""
   local newOkEnabled = false
@@ -384,9 +589,9 @@ function showFileInfo(dlg)
     newType = "<none>"
   else
     local ext = dlg.data.filename:upper():sub(-4)
-
     if ext:sub(1,3) == ".SC" then
       ext = ext:sub(-1)
+      ret = tonumber("0x"..ext)
       newInfo = "<not implemented yet>"
       -- SC2
       if ext == "2" then
@@ -399,43 +604,48 @@ function showFileInfo(dlg)
         -- newInfo = "64x48 16 fixed colors"
       -- SC4
       elseif ext == "4" then
-        newType = "MSX Screen 4 file"
-        -- newInfo = "256x192 16col from 512"
+        newType = "MSX2 Screen 4 file"
+        newInfo = "256x192 16col from 512"
+        newOkEnabled = true
       -- SC5
       elseif ext == "5" then
-        newType = "MSX Screen 5 file"
+        newType = "MSX2 Screen 5 file"
         -- newInfo = "256x212 16col from 512"
       -- SC6
       elseif ext == "6" then
-        newType = "MSX Screen 6 file"
+        newType = "MSX2 Screen 6 file"
         -- newInfo = "512x212 4col from 512"
       -- SC7
       elseif ext == "7" then
-        newType = "MSX Screen 7 file"
+        newType = "MSX2 Screen 7 file"
         -- newInfo = "512x212 16col from 512"
       -- SC8
       elseif ext == "8" then
-        newType = "MSX Screen 8 file"
+        newType = "MSX2 Screen 8 file"
         -- newInfo = "256x212 256col"
       -- SCA
       elseif ext == "A" then
-        newType = "MSX Screen 10 file"
-        -- newInfo = "256x212 12k colors"
+        newType = "MSX2+ Screen 10 file"
+        -- newInfo = "256x212 12k YJK + 16 RGB"
       -- SCC
       elseif ext == "C" then
-        newType = "MSX Screen 12 file"
-        -- newInfo = "256x212 19k colors"
+        newType = "MSX2+ Screen 12 file"
+        -- newInfo = "256x212 19k YJK Colors"
       end
     end
   end
 
   if newInfo ~= "" then
     newInfoVisible = true
+  else
+    ret = nil
   end
 
   dlg:modify{ id="file_type", text=newType }
   dlg:modify{ id="file_info", text=newInfo, visible=newInfoVisible }
   dlg:modify{ id="ok", enabled=newOkEnabled }
+
+  return ret
 end
 
 --! Script Body !--
@@ -445,6 +655,7 @@ function startDialog()
     return
   end
 
+  local scrMode = 0
   local dlg = nil
   local data = nil
   local cancel = false
@@ -456,7 +667,7 @@ function startDialog()
                 label="MSX image file:",
                 open=true,
                 filetypes={ "SC2", "SC3", "SC4", "SC5", "SC6", "SC7", "SC8", "SCA", "SCC" },
-                onchange=function() showFileInfo(dlg) end }
+                onchange=function() scrMode = showFileInfo(dlg) end }
               :label{ id="file_type", label="Selected", text="<none>" }
               :newrow()
               :label{ id="file_info", text="", visible=false }
@@ -481,6 +692,7 @@ function startDialog()
               :label{ label="by NataliaPC'2021" }
               :show().data
 
+    data.scrMode = scrMode
     if data.ok and data.filename == "" then 
       app.alert("  Select a file first  ")
     end
@@ -492,10 +704,33 @@ function startDialog()
       app.alert("  File not found  ")
     else
       -- From here we can read sprite.filename into our MSX reader.
-      local rdr = Reader:new(data)
-      local err = rdr:decode()
-      if err ~= nil then
-        app.alert(err:string())
+      local rdr = nil
+      
+      if data.scrMode == 2 then
+        rdr = ReaderSC2:new(data)
+      elseif data.scrMode == 3 then
+        rdr = ReaderSC3:new(data)
+      elseif data.scrMode == 4 then
+        rdr = ReaderSC4:new(data)
+      elseif data.scrMode == 5 then
+        rdr = ReaderSC5:new(data)
+      elseif data.scrMode == 6 then
+        rdr = ReaderSC6:new(data)
+      elseif data.scrMode == 7 then
+        rdr = ReaderSC7:new(data)
+      elseif data.scrMode == 8 then
+        rdr = ReaderSC8:new(data)
+      elseif data.scrMode == 10 then
+        rdr = ReaderSCA:new(data)
+      elseif data.scrMode == 12 then
+        rdr = ReaderSCC:new(data)
+      end
+
+      if rdr ~= nil then
+        local err = rdr:decode()
+        if err ~= nil then
+          app.alert(err:string())
+        end
       end
     end
   end
