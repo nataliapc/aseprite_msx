@@ -164,7 +164,6 @@ Reader = {
   imgSpr = nil,         -- Image layer for Sprites
   sprRender = false,    -- Flag to know if Sprite Layer must be created
   sprSize = 32,         -- sprites size in bytes
-  transpColor = 16,     -- Transparent color
 
   address = {
     tileMap = nil,
@@ -180,6 +179,7 @@ Reader = {
     mode = -1,          -- screen mode: 1, 2, 3, 4, 5, 6, 7, 8, 10 or 12
     maxWidth = 256,
     maxHeight = 192,
+    maxColors = 16,
     tileMap = nil,      -- used by Screen 1..12
     tilePatterns = nil, -- used by Screen 1..4
     tileColors = nil,   -- used by Screen 1..4
@@ -205,19 +205,25 @@ end
 
 -- ============================
 function Reader:config(o)
-  --  Screen:         1    2    3    4    5    6    7    8   10   12
-  local widths  = { 256, 256, 256, 256, 256, 512, 512, 256, 256, 256 }
-  local heights = { 192, 192, 192, 192, 212, 212, 212, 212, 212, 212 }
-
   self.filename = o.filename
   self.file = io.open(o.filename, "rb")
   self.sprRender = o.spr_render
 
-  if o.spr16 then self.sprSize = 32 else self.sprSize = 8 end
-
   self.screen.mode = o.scrMode
-  self.screen.maxWidth = widths[o.scrMode]
-  self.screen.maxHeight = heights[o.scrMode]
+
+  self.screen.maxWidth  = 256
+  self.screen.maxHeight = 192
+  self.screen.maxColors = 16
+
+  self.address.tilePat = nil
+  self.address.sprCol  = nil
+  self.address.sprAttr = nil
+  self.address.palette = nil
+  self.address.sprPat  = nil
+  self.address.tileMap = nil
+  self.address.tileCol = nil
+
+  if o.spr16 then self.sprSize = 32 else self.sprSize = 8 end
 end
 
 -- ============================
@@ -271,16 +277,16 @@ function Reader:createImage()
     self.spr:close()
     return Error(E.PALETTE_NOT_FOUND)
   end
-  palette:resize(17)
+  palette:resize(self.screen.maxColors+1)
   palette:setColor(0, Color{ r=0, g=0, b=0, a=255 } )
-  palette:setColor(self.transpColor, Color{ r=0, g=0, b=0, a=0 } )
+  palette:setColor(self.screen.maxColors, Color{ r=0, g=0, b=0, a=0 } )
   self.spr:setPalette(palette)
-  self.spr.transparentColor = self.transpColor
+  self.spr.transparentColor = self.screen.maxColors
 
   -- Bitmap Layer
   self.spr.layers[1].name = "Layer Bitmap"
   self.img = self.spr.cels[1].image
-  self.img:clear(self.transpColor)
+  self.img:clear(self.screen.maxColors)
 
   -- Sprite Layer
   if self.sprRender then
@@ -288,7 +294,7 @@ function Reader:createImage()
     layer.name = "Layer Sprites"
     cel = self.spr:newCel(layer, self.spr.frames[1])
     self.imgSpr = cel.image
-    self.imgSpr:clear(self.transpColor)
+    self.imgSpr:clear(self.screen.maxColors)
   end
 end
 
@@ -334,6 +340,30 @@ function Reader:paintBitmapScreen()
   end
 end
 
+-- ============================
+function Reader:paintByte(img, x, y, pattern, fgcol, bgcol, isOrEnabled)
+  local colPixel = 0
+  if pattern == nil then return end
+
+  for xp=x+7,x,-1 do
+    -- Pixel value
+    if (pattern & 1) == 1 then
+      colPixel = fgcol
+      -- OR colors
+      if isOrEnabled then
+        local oldColor = img:getPixel(xp, y)
+        if oldColor >= self.screen.maxColors then oldColor = 0 end
+        colPixel = colPixel | oldColor
+      end
+    else
+      colPixel = bgcol
+    end
+    if colPixel ~= self.screen.maxColors and xp >= 0 and y >= 0 and xp < self.screen.maxWidth and y < self.screen.maxHeight then
+      img:putPixel(xp, y, colPixel)
+    end
+    pattern = pattern // 2
+  end
+end
 
 -- ########################################################
 --     Sprite functions
@@ -345,9 +375,6 @@ function Reader:paintSpriteLayers()
   for layer=31,0,-1 do
     attr = self:getSpriteLayerAttribs(layer)
     sprPat = self:getSpritePattern(attr.patternNum)
-    -- if attr.color & 0x80 == 0x80 then
-    --   attr.x = attr.x - 32
-    -- end
     if attr.y > self.screen.maxHeight then
       attr.y = attr.y - 256
     end
@@ -363,7 +390,8 @@ function Reader:paintSprite(attr, data)
   for xp=attr.x,attr.x+8,8 do
     for line=0,15 do
       if line==8 and self.sprSize==8 then return end
-      self:paintByte(self.imgSpr, xp, attr.y+line, data:byte(pos), attr.color[line+1], self.transpColor, attr.orColor[line+1])
+      if attr.ec[line] then offset=-32 else offset=0 end
+      self:paintByte(self.imgSpr, xp+offset, attr.y+line, data:byte(pos), attr.color[line+1], self.screen.maxColors, attr.orColor[line+1])
       pos = pos + 1
     end
   end
@@ -437,14 +465,14 @@ end
 -- ============================
 function Reader:_parsePaletteMSX2()
   if self.screen.palette ~= nil then
-    local palette = Palette(17)
+    local palette = self.spr.palettes[1]
     local r, g, b
 
     -- the file palette is RGB444 but the MSX hardware is RGB333
-    for i=0,15 do
+    for i=0,self.screen.maxColors-1 do
       -- read palette from file & create RGB444
-      r = self.screen.palette:byte(i*2+1)
-      g = self.screen.palette:byte(i*2+2)
+      r = self.screen.palette:byte(i*2+1) or 0
+      g = self.screen.palette:byte(i*2+2) or 0
       b = r & 0x0f
       r = r >> 4
       -- RGB444 -> RGB888
@@ -453,8 +481,6 @@ function Reader:_parsePaletteMSX2()
       b = b * 255 // 7
       palette:setColor(i, Color{ r=r, g=g, b=b })
     end
-    -- set palette to the aseprite image
-    self.spr:setPalette(palette)
   end
 end
 
@@ -470,6 +496,7 @@ function ReaderTiled:new(o)
   rdr = Reader:new(o)
   setmetatable(rdr, self)
   self.__index = self
+
   return rdr
 end
 
@@ -491,31 +518,6 @@ function ReaderTiled:paintBitmapTile(x, y, offset)
   return nil
 end
 
--- ============================
-function ReaderTiled:paintByte(img, x, y, pattern, fgcol, bgcol, isOrEnabled)
-  local colPixel = 0
-  if pattern == nil then return end
-
-  for xp=x+7,x,-1 do
-    -- Pixel value
-    if (pattern & 1) == 1 then
-      colPixel = fgcol
-      -- OR colors
-      if isOrEnabled then
-        local oldColor = img:getPixel(xp, y)
-        if oldColor >= self.transpColor then oldColor = 0 end
-        colPixel = colPixel | oldColor
-      end
-    else
-      colPixel = bgcol
-    end
-    if colPixel ~= self.transpColor and xp >= 0 and y >= 0 and xp < self.screen.maxWidth and y < self.screen.maxHeight then
-      img:putPixel(xp, y, colPixel)
-    end
-    pattern = pattern // 2
-  end
-end
-
 
 
 -- ########################################################
@@ -529,11 +531,15 @@ function ReaderSC2:new(o)
   setmetatable(rdr, self)
   self.__index = self
 
-  self.address.tilePat = { pos=0x0000, size=0x1800 }
-  self.address.tileMap = { pos=0x1800, size=0x300 }
-  self.address.sprAttr = { pos=0x1b00, size=0x80 }
-  self.address.tileCol = { pos=0x2000, size=0x1800 }
-  self.address.sprPat  = { pos=0x3800, size=0x800 }
+  rdr.screen.maxWidth = 256
+  rdr.screen.maxHeight = 192
+  rdr.screen.maxColors = 16
+
+  rdr.address.tilePat = { pos=0x0000, size=0x1800 }
+  rdr.address.tileMap = { pos=0x1800, size=0x300 }
+  rdr.address.sprAttr = { pos=0x1b00, size=0x80 }
+  rdr.address.tileCol = { pos=0x2000, size=0x1800 }
+  rdr.address.sprPat  = { pos=0x3800, size=0x800 }
 
   return rdr
 end
@@ -551,13 +557,17 @@ function ReaderSC4:new(o)
   setmetatable(rdr, self)
   self.__index = self
 
-  self.address.tilePat = { pos=0x0000, size=0x1800 }
-  self.address.tileMap = { pos=0x1800, size=0x300 }
-  self.address.palette = { pos=0x1b80, size=0x20 }
-  self.address.sprCol  = { pos=0x1c00, size=0x200 }
-  self.address.sprAttr = { pos=0x1e00, size=0x80 }
-  self.address.tileCol = { pos=0x2000, size=0x1800 }
-  self.address.sprPat  = { pos=0x3800, size=0x800 }
+  rdr.screen.maxWidth = 256
+  rdr.screen.maxHeight = 192
+  rdr.screen.maxColors = 16
+
+  rdr.address.tilePat = { pos=0x0000, size=0x1800 }
+  rdr.address.tileMap = { pos=0x1800, size=0x300 }
+  rdr.address.palette = { pos=0x1b80, size=0x20 }
+  rdr.address.sprCol  = { pos=0x1c00, size=0x200 }
+  rdr.address.sprAttr = { pos=0x1e00, size=0x80 }
+  rdr.address.tileCol = { pos=0x2000, size=0x1800 }
+  rdr.address.sprPat  = { pos=0x3800, size=0x800 }
 
   return rdr
 end
@@ -570,6 +580,163 @@ end
 -- ============================
 function ReaderSC4:getSpriteLayerAttribs(layer)
   return self:_getSpriteLayerAttribsMode2(layer)
+end
+
+
+
+-- ########################################################
+--     ReaderBitmapRGB (abstract)
+-- ########################################################
+
+ReaderBitmapRGB = Reader:new()
+
+function ReaderBitmapRGB:new(o)
+  rdr = Reader:new(o)
+  setmetatable(rdr, self)
+  self.__index = self
+  return rdr
+end
+
+-- ============================
+function ReaderBitmapRGB:paintBitmapScreen()
+  local x = 0
+  local y = 0
+  local pos = 1
+
+  repeat
+    colorByte = self.screen.tilePatterns:byte(pos) or nil
+    pos = pos + 1
+
+    if colorByte ~= nil then
+      x, y = self:paintBitmapByte(x, y, colorByte)
+    end
+  until colorByte == nil
+end
+
+-- ============================
+function ReaderBitmapRGB:paintBitmapByte(x, y, colorByte)
+  self.img:putPixel(x, y, colorByte >> 4)
+  self.img:putPixel(x+1, y, colorByte & 0x0f)
+  x = x + 2
+  if (x >= self.screen.maxWidth) then
+    x = 0
+    y = y + 1
+  end
+  return x, y
+end
+
+-- ============================
+function ReaderBitmapRGB:setPalette()
+  self:_parsePaletteMSX2()
+end
+
+-- ============================
+function ReaderBitmapRGB:getSpriteLayerAttribs(layer)
+  return self:_getSpriteLayerAttribsMode2(layer)
+end
+
+
+
+-- ########################################################
+--     ReaderSC5
+-- ########################################################
+
+ReaderSC5 = ReaderBitmapRGB:new()
+
+function ReaderSC5:new(o)
+  rdr = ReaderBitmapRGB:new(o)
+  setmetatable(rdr, self)
+  self.__index = self
+
+  rdr.screen.maxWidth = 256
+  rdr.screen.maxHeight = 212
+  rdr.screen.maxColors = 16
+
+  rdr.address.tilePat = { pos=0x0000, size=0x6a00 }
+  rdr.address.sprCol  = { pos=0x7400, size=0x200 }
+  rdr.address.sprAttr = { pos=0x7600, size=0x80 }
+  rdr.address.palette = { pos=0x7680, size=0x20 }
+  rdr.address.sprPat  = { pos=0x7800, size=0x800 }
+
+  return rdr
+end
+
+-- ============================
+function ReaderSC5:paintBitmapByte(x, y, colorByte)
+  self.img:putPixel(x, y, colorByte >> 4)
+  self.img:putPixel(x+1, y, colorByte & 0x0f)
+  x = x + 2
+  if (x >= self.screen.maxWidth) then
+    x = 0
+    y = y + 1
+  end
+  return x, y
+end
+
+
+
+-- ########################################################
+--     ReaderSC6
+-- ########################################################
+
+ReaderSC6 = ReaderBitmapRGB:new()
+
+function ReaderSC6:new(o)
+  rdr = ReaderBitmapRGB:new(o)
+  setmetatable(rdr, self)
+  self.__index = self
+
+  rdr.screen.maxWidth = 512
+  rdr.screen.maxHeight = 212
+  rdr.screen.maxColors = 4
+
+  rdr.address.tilePat = { pos=0x0000, size=0x6a00 }
+  rdr.address.sprCol  = { pos=0x7400, size=0x200 }
+  rdr.address.sprAttr = { pos=0x7600, size=0x80 }
+  rdr.address.palette = { pos=0x7680, size=0x20 }
+  rdr.address.sprPat  = { pos=0x7800, size=0x800 }
+
+  return rdr
+end
+
+-- ============================
+function ReaderSC6:paintBitmapByte(x, y, colorByte)
+  self.img:putPixel(x, y, colorByte >> 6)
+  self.img:putPixel(x+1, y, (colorByte >> 4) & 0x03)
+  self.img:putPixel(x+2, y, (colorByte >> 2) & 0x03)
+  self.img:putPixel(x+3, y, colorByte & 0x03)
+  x = x + 4
+  if (x >= self.screen.maxWidth) then
+    x = 0
+    y = y + 1
+  end
+  return x, y
+end
+
+
+
+-- ########################################################
+--     ReaderSC7
+-- ########################################################
+
+ReaderSC7 = ReaderSC5:new()
+
+function ReaderSC7:new(o)
+  rdr = ReaderSC5:new(o)
+  setmetatable(rdr, self)
+  self.__index = self
+
+  rdr.screen.maxWidth = 512
+  rdr.screen.maxHeight = 212
+  rdr.screen.maxColors = 16
+
+  rdr.address.tilePat = { pos=0x0000, size=0xd400 }
+  rdr.address.sprPat  = { pos=0xf000, size=0x800 }
+  rdr.address.sprCol  = { pos=0xf800, size=0x200 }
+  rdr.address.sprAttr = { pos=0xfa00, size=0x80 }
+  rdr.address.palette = { pos=0xfa80, size=0x20 }
+
+  return rdr
 end
 
 
@@ -610,19 +777,23 @@ function showFileInfo(dlg)
       -- SC5
       elseif ext == "5" then
         newType = "MSX2 Screen 5 file"
-        -- newInfo = "256x212 16col from 512"
+        newInfo = "256x212 16col from 512"
+        newOkEnabled = true
       -- SC6
       elseif ext == "6" then
         newType = "MSX2 Screen 6 file"
-        -- newInfo = "512x212 4col from 512"
+        newInfo = "512x212 4col from 512"
+        newOkEnabled = true
       -- SC7
       elseif ext == "7" then
         newType = "MSX2 Screen 7 file"
-        -- newInfo = "512x212 16col from 512"
+        newInfo = "512x212 16col from 512"
+        newOkEnabled = true
       -- SC8
       elseif ext == "8" then
         newType = "MSX2 Screen 8 file"
-        -- newInfo = "256x212 256col"
+        -- newInfo = "256x212 256 fixed col"
+        -- newOkEnabled = true
       -- SCA
       elseif ext == "A" then
         newType = "MSX2+ Screen 10 file"
@@ -631,6 +802,8 @@ function showFileInfo(dlg)
       elseif ext == "C" then
         newType = "MSX2+ Screen 12 file"
         -- newInfo = "256x212 19k YJK Colors"
+      else
+        newOkEnabled = false
       end
     end
   end
@@ -650,7 +823,6 @@ end
 
 --! Script Body !--
 function startDialog()
-
   if not app.isUIAvailable then
     return
   end
