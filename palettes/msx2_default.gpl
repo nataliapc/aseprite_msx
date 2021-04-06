@@ -1,0 +1,21 @@
+GIMP Palette
+Channels: RGBA
+# MSX2 16 colors default palette RGB333
+  0   0   0 255 #000 - Transparent
+  1   1   1 255 #000 - Black
+ 36 219  36 255 #161 - Medium green
+109 255 109 255 #373 - Light green
+ 36  36 255 255 #117 - Dark blue
+ 73 109 255 255 #237 - Light blue
+182  36  36 255 #511 - Dark red
+ 73 219 255 255 #267 - Cyan
+255  36  36 255 #711 - Medium red
+255 109 109 255 #733 - Light red
+219 219  36 255 #661 - Dark yellow
+219 219 146 255 #664 - Light yellow
+ 36 146  36 255 #141 - Dark green
+219  73 182 255 #625 - Magenta
+182 182 182 255 #555 - Gray
+255 255 255 255 #777 - White
+  0   0   0   0 Transparent
+

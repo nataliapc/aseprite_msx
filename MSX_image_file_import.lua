@@ -123,7 +123,7 @@ local E = {
     "  Invalid MSX file  ",
     "  Bad dimensions  ",
     "  Dimension overflow  ",
-    "  MSX1 Palette not found  ",
+    "  Palette not found  ",
     "  Tileset overflow  ",
   }
 }
@@ -175,11 +175,14 @@ Reader = {
     palette = nil,      -- only MSX2 or above
   },
 
-  screen = {            -- MSX data
+  screen = {            -- MSX screen mode info/data
+    -- info variables
     mode = -1,          -- screen mode: 1, 2, 3, 4, 5, 6, 7, 8, 10 or 12
     maxWidth = 256,
     maxHeight = 192,
     maxColors = 16,
+    paletteRes = "MSX1_DEFAULT",
+    -- data containers
     tileMap = nil,      -- used by Screen 1..12
     tilePatterns = nil, -- used by Screen 1..4
     tileColors = nil,   -- used by Screen 1..4
@@ -248,7 +251,7 @@ function Reader:decode()
   if err ~= nil then return err end
 
   -- paint sprites
-  if self.screen.sprPatterns ~= nil then
+  if self.sprRender and self.screen.sprPatterns ~= nil then
     err = self:paintSpriteLayers()
     if err ~= nil then return err end
   end
@@ -271,15 +274,15 @@ function Reader:createImage()
   self.spr = Sprite(self.screen.maxWidth, self.screen.maxHeight, ColorMode.INDEXED)
   self.spr.filename = self.filename .. ".png"
 
-  -- MSX Palette
-  local palette = Palette{ fromResource="MSX1" }
+  -- MSX Default Palettes
+  local palette = Palette{ fromResource=self.screen.paletteRes }
   if palette == nil then
     self.spr:close()
     return Error(E.PALETTE_NOT_FOUND)
   end
-  palette:resize(self.screen.maxColors+1)
-  palette:setColor(0, Color{ r=0, g=0, b=0, a=255 } )
-  palette:setColor(self.screen.maxColors, Color{ r=0, g=0, b=0, a=0 } )
+  if self.screen.maxColors<256 then
+    palette:resize(self.screen.maxColors+1)
+  end
   self.spr:setPalette(palette)
   self.spr.transparentColor = self.screen.maxColors
 
@@ -390,7 +393,7 @@ function Reader:paintSprite(attr, data)
   for xp=attr.x,attr.x+8,8 do
     for line=0,15 do
       if line==8 and self.sprSize==8 then return end
-      if attr.ec[line] then offset=-32 else offset=0 end
+      if attr.ec[line+1]>0 then offset=-32 else offset=0 end
       self:paintByte(self.imgSpr, xp+offset, attr.y+line, data:byte(pos), attr.color[line+1], self.screen.maxColors, attr.orColor[line+1])
       pos = pos + 1
     end
@@ -417,7 +420,7 @@ function Reader:_getSpriteLayerAttribsMode1(layer)
     y = bin:byte(1) or 209,
     x = bin:byte(2) or 0,
     patternNum = bin:byte(3) or 0,
-    ec = Array:fill(16, (colorByte & 0x80) and true or false),
+    ec = Array:fill(16, colorByte >> 7),
     color = Array:fill(16, colorByte & 0x0f),
     orColor = Array:fill(16, false),
   }
@@ -433,8 +436,8 @@ function Reader:_getSpriteLayerAttribsMode2(layer)
   for line=1,16 do
     aux = colors:byte(line) or 0
     attr.color[line] = aux & 0x0f
-    attr.ec[line] = (aux & 0x80) and true or false
-    attr.orColor[line] = (aux & 0x40) and true or false
+    attr.ec[line] = aux >> 7
+    attr.orColor[line] = (aux >> 6) & 1
   end
   return attr
 end
@@ -479,7 +482,7 @@ function Reader:_parsePaletteMSX2()
       r = r * 255 // 7
       g = g * 255 // 7
       b = b * 255 // 7
-      palette:setColor(i, Color{ r=r, g=g, b=b })
+      palette:setColor(i, Color(r, g, b))
     end
   end
 end
@@ -534,6 +537,7 @@ function ReaderSC2:new(o)
   rdr.screen.maxWidth = 256
   rdr.screen.maxHeight = 192
   rdr.screen.maxColors = 16
+  rdr.screen.paletteRes = "MSX1_DEFAULT"
 
   rdr.address.tilePat = { pos=0x0000, size=0x1800 }
   rdr.address.tileMap = { pos=0x1800, size=0x300 }
@@ -560,6 +564,7 @@ function ReaderSC4:new(o)
   rdr.screen.maxWidth = 256
   rdr.screen.maxHeight = 192
   rdr.screen.maxColors = 16
+  rdr.screen.paletteRes = "MSX2_DEFAULT"
 
   rdr.address.tilePat = { pos=0x0000, size=0x1800 }
   rdr.address.tileMap = { pos=0x1800, size=0x300 }
@@ -594,6 +599,9 @@ function ReaderBitmapRGB:new(o)
   rdr = Reader:new(o)
   setmetatable(rdr, self)
   self.__index = self
+
+  rdr.screen.paletteRes = "MSX2_DEFAULT"
+
   return rdr
 end
 
@@ -742,6 +750,273 @@ end
 
 
 -- ########################################################
+--     ReaderSC8
+-- ########################################################
+
+ReaderSC8 = ReaderBitmapRGB:new()
+
+function ReaderSC8:new(o)
+  rdr = ReaderBitmapRGB:new(o)
+  setmetatable(rdr, self)
+  self.__index = self
+
+  rdr.sprRender = false
+
+  rdr.screen.maxWidth = 256
+  rdr.screen.maxHeight = 212
+  rdr.screen.maxColors = 256
+  rdr.screen.paletteRes = "MSX2_SC8"
+
+  rdr.address.tilePat = { pos=0x0000, size=0xd400 }
+  rdr.address.sprPat  = { pos=0xf000, size=0x800 }
+  rdr.address.sprCol  = { pos=0xf800, size=0x200 }
+  rdr.address.sprAttr = { pos=0xfa00, size=0x80 }
+  rdr.address.palette = { pos=0xfa80, size=0x20 }
+
+  return rdr
+end
+
+-- ============================
+function ReaderSC8:paintBitmapByte(x, y, colorByte)
+  self.img:putPixel(x, y, colorByte)
+  x = x + 1
+  if (x >= self.screen.maxWidth) then
+    x = 0
+    y = y + 1
+  end
+  return x, y
+end
+
+
+
+-- ########################################################
+--     ReaderBitmapYJK (abstract)
+--
+--   Info: http://map.grauw.nl/articles/yjk/
+-- ########################################################
+
+ReaderBitmapYJK = Reader:new()
+
+function ReaderBitmapYJK:new(o)
+  rdr = Reader:new(o)
+  setmetatable(rdr, self)
+  self.__index = self
+
+  rdr.screen.paletteRes = "MSX2_DEFAULT"
+  rdr.screen.colorMode = ColorMode.RGB
+
+  return rdr
+end
+
+-- ============================
+function ReaderBitmapYJK:createImage()
+  self.spr = Sprite(self.screen.maxWidth, self.screen.maxHeight, ColorMode.RGB)
+  self.spr.filename = self.filename .. ".png"
+
+  -- MSX Default Palettes
+  local palette = Palette{ fromResource=self.screen.paletteRes }
+  if palette == nil then
+    self.spr:close()
+    return Error(E.PALETTE_NOT_FOUND)
+  end
+  self.spr:setPalette(palette)
+  -- self.spr.transparentColor = self.screen.maxColors
+
+  -- Bitmap Layer
+  self.spr.layers[1].name = "Layer Bitmap"
+  self.img = self.spr.cels[1].image
+end
+
+-- ============================
+function ReaderBitmapYJK:setPalette()
+  self:_parsePaletteMSX2()
+end
+
+-- ============================
+function ReaderBitmapYJK:getSpriteLayerAttribs(layer)
+  return self:_getSpriteLayerAttribsMode2(layer)
+end
+
+-- ============================
+function ReaderBitmapYJK:paintBitmapScreen()
+  local x = 0
+  local y = 0
+  local pos = 1
+
+  repeat
+    colorByte = self.screen.tilePatterns:sub(pos, pos+3) or nil
+    pos = pos + 4
+
+    if colorByte ~= nil then
+      x, y = self:paintBitmapByte(x, y, colorByte)
+    end
+  until self.screen.tilePatterns:byte(pos) == nil
+end
+
+-- ============================
+function ReaderBitmapYJK:paintBitmapByte(x, y, colorBytes)
+  local c1, c2, c3, c4
+
+  c1,c2,c3,c4 = self:getColorRGB(colorBytes)
+
+  self.img:putPixel(x+0, y, c1)
+  self.img:putPixel(x+1, y, c2)
+  self.img:putPixel(x+2, y, c3)
+  self.img:putPixel(x+3, y, c4)
+
+  x = x + 4
+  if (x >= self.screen.maxWidth) then
+    x = 0
+    y = y + 1
+  end
+
+  return x, y
+end
+
+-- ============================
+function ReaderBitmapYJK:getColorRGB(colorBytes)
+  local y1, y2, y3, y4, j, k
+
+  y1,y2,y3,y4,j,k = self:decodeYJK(colorBytes)
+
+  return self:yjk2rgb(y1, j, k), self:yjk2rgb(y2, j, k), self:yjk2rgb(y3, j, k), self:yjk2rgb(y4, j, k)
+end
+
+-- ============================
+function ReaderBitmapYJK:decodeYJK(colorBytes)
+  local y1, y2, y3, y4, j, k
+  local aux
+  
+  aux = colorBytes:byte(1) or 0
+  y1 = aux >> 3
+  k = aux & 0x07
+
+  aux = colorBytes:byte(2) or 0
+  y2 = aux >> 3
+  k = k | ((aux & 0x07) << 3)
+  k = decodeTwocomplement6bits(k)
+
+  aux = colorBytes:byte(3) or 0
+  y3 = aux >> 3
+  j = aux & 0x07
+
+  aux = colorBytes:byte(4) or 0
+  y4 = aux >> 3
+  j = j | ((aux & 0x07) << 3)
+  j = decodeTwocomplement6bits(j)
+
+  return y1, y2, y3, y4, j, k
+end
+
+-- ============================
+function ReaderBitmapYJK:yjk2rgb(y, j, k)
+  local r, g, b
+
+  r = y + j
+  g = y + k
+  b = math.ceil(5*y/4.0 - j/2.0 - k/2.0)
+
+  r = r * 255 // 31
+  g = g * 255 // 31
+  b = b * 255 // 31
+
+  r = math.max(math.min(r, 255), 0)
+  g = math.max(math.min(g, 255), 0)
+  b = math.max(math.min(b, 255), 0)
+
+  return Color(r, g, b)
+end
+
+-- ============================
+function decodeTwocomplement6bits(num)
+  local signBit = 0x20
+	if num >= signBit then
+		num = num - (2 * signBit)
+	end
+  return num
+end
+
+
+
+-- ########################################################
+--     ReaderSCA
+-- ########################################################
+
+ReaderSCA = ReaderBitmapYJK:new()
+
+function ReaderSCA:new(o)
+  rdr = ReaderBitmapYJK:new(o)
+  setmetatable(rdr, self)
+  self.__index = self
+
+  rdr.sprRender = false
+
+  rdr.screen.maxWidth = 256
+  rdr.screen.maxHeight = 212
+  rdr.screen.maxColors = 16
+
+  rdr.address.tilePat = { pos=0x0000, size=0xd400 }
+  rdr.address.sprPat  = { pos=0xf000, size=0x800 }
+  rdr.address.sprCol  = { pos=0xf800, size=0x200 }
+  rdr.address.sprAttr = { pos=0xfa00, size=0x80 }
+  rdr.address.palette = { pos=0xfa80, size=0x20 }
+
+  return rdr
+end
+
+-- ============================
+function ReaderSCA:getColorRGB(colorBytes)
+  local y1, y2, y3, y4, j, k
+  local c1, c2, c3, c4
+
+  y1,y2,y3,y4,j,k = self:decodeYJK(colorBytes)
+
+  if y1 & 1 == 1 then c1 = Color(self.spr.palettes[1]:getColor(y1>>1))
+  else c1 = self:yjk2rgb(y1, j, k) end
+
+  if y2 & 1 == 1 then c2 = Color(self.spr.palettes[1]:getColor(y2>>1))
+  else c2 = self:yjk2rgb(y2, j, k) end
+
+  if y3 & 1 == 1 then c3 = Color(self.spr.palettes[1]:getColor(y3>>1))
+  else c3 = self:yjk2rgb(y3, j, k) end
+
+  if y4 & 1 == 1 then c4 = Color(self.spr.palettes[1]:getColor(y4>>1))
+  else c4 = self:yjk2rgb(y4, j, k) end
+
+  return c1, c2, c3, c4
+end
+
+
+
+-- ########################################################
+--     ReaderSCC
+-- ########################################################
+
+ReaderSCC = ReaderBitmapYJK:new()
+
+function ReaderSCC:new(o)
+  rdr = ReaderBitmapYJK:new(o)
+  setmetatable(rdr, self)
+  self.__index = self
+
+  rdr.sprRender = false
+
+  rdr.screen.maxWidth = 256
+  rdr.screen.maxHeight = 212
+  rdr.screen.maxColors = 16
+
+  rdr.address.tilePat = { pos=0x0000, size=0xd400 }
+  rdr.address.sprPat  = { pos=0xf000, size=0x800 }
+  rdr.address.sprCol  = { pos=0xf800, size=0x200 }
+  rdr.address.sprAttr = { pos=0xfa00, size=0x80 }
+  rdr.address.palette = { pos=0xfa80, size=0x20 }
+
+  return rdr
+end
+
+
+
+-- ########################################################
 --     Dialog management
 -- ########################################################
 
@@ -749,7 +1024,7 @@ function showFileInfo(dlg)
   local ret = nil
   local newType = "<unknown file format>"
   local newInfo = ""
-  local newOkEnabled = false
+  local newOkEnabled = true
   local newInfoVisible = false
 
   if dlg.data.filename == nil then
@@ -764,44 +1039,39 @@ function showFileInfo(dlg)
       if ext == "2" then
         newType = "MSX Screen 2 file"
         newInfo = "256x192 16 fixed colors"
-        newOkEnabled = true
       -- SC3
       elseif ext == "3" then
         newType = "MSX Screen 3 file"
         -- newInfo = "64x48 16 fixed colors"
+        newOkEnabled = false
       -- SC4
       elseif ext == "4" then
         newType = "MSX2 Screen 4 file"
         newInfo = "256x192 16col from 512"
-        newOkEnabled = true
       -- SC5
       elseif ext == "5" then
         newType = "MSX2 Screen 5 file"
         newInfo = "256x212 16col from 512"
-        newOkEnabled = true
       -- SC6
       elseif ext == "6" then
         newType = "MSX2 Screen 6 file"
         newInfo = "512x212 4col from 512"
-        newOkEnabled = true
       -- SC7
       elseif ext == "7" then
         newType = "MSX2 Screen 7 file"
         newInfo = "512x212 16col from 512"
-        newOkEnabled = true
       -- SC8
       elseif ext == "8" then
         newType = "MSX2 Screen 8 file"
-        -- newInfo = "256x212 256 fixed col"
-        -- newOkEnabled = true
+        newInfo = "256x212 256 fixed col"
       -- SCA
       elseif ext == "A" then
         newType = "MSX2+ Screen 10 file"
-        -- newInfo = "256x212 12k YJK + 16 RGB"
+        newInfo = "256x212 12k YJK + 16 RGB"
       -- SCC
       elseif ext == "C" then
         newType = "MSX2+ Screen 12 file"
-        -- newInfo = "256x212 19k YJK Colors"
+        newInfo = "256x212 19k YJK Colors"
       else
         newOkEnabled = false
       end

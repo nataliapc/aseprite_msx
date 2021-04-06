@@ -13,6 +13,11 @@
   "contributes": {
     "scripts": [
         { "path": "./MSX_image_file_import.lua" }
+    ],
+    "palettes": [
+        { "id": "MSX1_DEFAULT", "path": "./palettes/msx1_default.gpl" },
+        { "id": "MSX2_DEFAULT", "path": "./palettes/msx2_default.gpl" },
+        { "id": "MSX2_SC8",     "path": "./palettes/msx2_sc8.gpl" }
     ]
   }
 }
