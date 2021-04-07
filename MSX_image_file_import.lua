@@ -1,15 +1,20 @@
 --[[
-	####### Aseprite MSX Screen 2 importer script #######
+	####### Aseprite - MSX image files importer script #######
   Copyright by Natalia Pujol (2021)
   This file is released under the terms of the MIT license.
 
-  MSX SCREEN 2 Mode: - 256x192px with 16 colors (fixed palette)
-                     - Color clash: 2 colors each 8x1 pixels
-                     - 64 sprites of 16x16px 1 color (or 256 of 8x8px 1 color)
-                     - 32 planes for visible sprites at same time
+  Info:
+    - MSX Graphics Screen modes:
+        https://www.msx.org/wiki/Yamaha_V9958
+        http://map.grauw.nl/resources/video/yamaha_v9958.pdf
+    - YJK modes:
+        http://map.grauw.nl/articles/yjk/
+    - MAG MAX file format:
+        https://mooncore.eu/bunny/txt/makichan.htm
 
-	Inspired by https://github.com/kettek/aseprite-scripts/blob/master/import-apng.lua
-	like a source base.
+
+	Code inspired by
+    https://github.com/kettek/aseprite-scripts/blob/master/import-apng.lua
  --]]
 
 
@@ -319,10 +324,13 @@ function Reader:parseVRAM()
   self.screen.palette = self:readChunk(self.address.palette)
 end
 
+-- ########################################################
+--     Bitmap functions
+
 -- ============================
 function Reader:paintBitmapScreen()
-  local tile = 0
-  local offset = 0
+  local tile
+  local offset
   local x = 0
   local y = 0
   local err = nil
@@ -546,6 +554,84 @@ function ReaderSC2:new(o)
   rdr.address.sprPat  = { pos=0x3800, size=0x800 }
 
   return rdr
+end
+
+
+
+-- ########################################################
+--     ReaderSC3
+-- ########################################################
+
+ReaderSC3 = ReaderTiled:new()
+
+function ReaderSC3:new(o)
+  rdr = ReaderTiled:new(o)
+  setmetatable(rdr, self)
+  self.__index = self
+
+  rdr.screen.maxWidth = 64
+  rdr.screen.maxHeight = 48
+  rdr.screen.maxColors = 16
+  rdr.screen.paletteRes = "MSX1_DEFAULT"
+
+  rdr.address.tileCol = { pos=0x0000, size=0x0600 } -- Block colors
+  rdr.address.tileMap = { pos=0x0800, size=0x300 }
+  rdr.address.sprAttr = { pos=0x1b00, size=0x80 }
+  rdr.address.sprPat  = { pos=0x3800, size=0x800 }
+
+  return rdr
+end
+
+-- ============================
+function ReaderSC3:paintBitmapScreen()
+  local offset = 0
+  local x = 0
+  local y = 0
+
+  if self.screen.tileMap == nil then
+    self:createTileMap()
+  end
+
+  for t=1,0x600 do
+    offset = (y//8)*256+(y & 7)+(x*4 & 0xf8)
+    self:paintBitmapTile(x, y, offset)
+
+    x = x + 2
+    if x >= self.screen.maxWidth then
+      x = 0
+      y = y + 1
+    end
+  end
+end
+
+-- ============================
+function ReaderSC3:paintBitmapTile(x, y, offset)
+  local col = self.screen.tileColors:byte(offset+1) or 0
+
+-- app.alert(offset..string.format(" %x %x",offset,col))
+  self.img:putPixel(x, y, col >> 4)
+  self.img:putPixel(x+1, y, col & 0x0f)
+end
+
+-- ============================
+function ReaderSC3:createTileMap()
+  local vini = 0
+  local map = string.rep(string.char(0), 0x300)
+  for i=0,0x300,0x80 do
+    for v=0,0x20 do
+      changeChar(map, i+v+0x00, string.char(vini+v))
+      changeChar(map, i+v+0x20, string.char(vini+v))
+      changeChar(map, i+v+0x40, string.char(vini+v))
+      changeChar(map, i+v+0x60, string.char(vini+v))
+    end
+    vini = vini + 0x20
+  end
+  self.screen.tileMap = map
+end
+
+-- ============================
+function changeChar(str, pos, r)
+    return str:sub(1, pos-1) .. r .. str:sub(pos+1)
 end
 
 
@@ -791,8 +877,6 @@ end
 
 -- ########################################################
 --     ReaderBitmapYJK (abstract)
---
---   Info: http://map.grauw.nl/articles/yjk/
 -- ########################################################
 
 ReaderBitmapYJK = Reader:new()
@@ -1042,8 +1126,7 @@ function showFileInfo(dlg)
       -- SC3
       elseif ext == "3" then
         newType = "MSX Screen 3 file"
-        -- newInfo = "64x48 16 fixed colors"
-        newOkEnabled = false
+        newInfo = "64x48 16 fixed colors"
       -- SC4
       elseif ext == "4" then
         newType = "MSX2 Screen 4 file"
