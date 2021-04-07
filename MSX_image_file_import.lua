@@ -16,7 +16,7 @@
 	Code inspired by
     https://github.com/kettek/aseprite-scripts/blob/master/import-apng.lua
  --]]
-
+local version = "v0.9"
 
 function init(plugin)
   print("MSX image file import plugin initialized...")
@@ -1209,7 +1209,7 @@ function startDialog()
   local data = nil
   local cancel = false
   repeat
-    dlg = Dialog("Import MSX image file")
+    dlg = Dialog("Import MSX image file "..version)
     data = dlg
               :file{
                 id="filename",
