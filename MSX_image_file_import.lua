@@ -402,7 +402,9 @@ function Reader:paintSprite(attr, data)
     for line=0,15 do
       if line==8 and self.sprSize==8 then return end
       if attr.ec[line+1]>0 then offset=-32 else offset=0 end
-      self:paintByte(self.imgSpr, xp+offset, attr.y+line, data:byte(pos), attr.color[line+1], self.screen.maxColors, attr.orColor[line+1])
+      if self.screen.mode > 3 or attr.color[line+1] ~= 0 then
+        self:paintByte(self.imgSpr, xp+offset, attr.y+line, data:byte(pos), attr.color[line+1], self.screen.maxColors, attr.orColor[line+1])
+      end
       pos = pos + 1
     end
   end
@@ -532,6 +534,48 @@ end
 
 
 -- ########################################################
+--     ReaderSC1
+-- ########################################################
+
+ReaderSC1 = ReaderTiled:new()
+
+function ReaderSC1:new(o)
+  rdr = ReaderTiled:new(o)
+  setmetatable(rdr, self)
+  self.__index = self
+
+  rdr.screen.maxWidth = 256
+  rdr.screen.maxHeight = 192
+  rdr.screen.maxColors = 16
+  rdr.screen.paletteRes = "MSX1_DEFAULT"
+
+  rdr.address.tilePat = { pos=0x0000, size=0x0800 }
+  rdr.address.tileMap = { pos=0x1800, size=0x300 }
+  rdr.address.sprAttr = { pos=0x1b00, size=0x80 }
+  rdr.address.tileCol = { pos=0x2000, size=0x20 }
+  rdr.address.sprPat  = { pos=0x3800, size=0x800 }
+
+  return rdr
+end
+
+-- ============================
+function ReaderSC1:paintBitmapTile(x, y, offset)
+  offset = offset % 0x800
+  local color = self.screen.tileColors:byte(offset//64 + 1)
+  for yt=0,7 do
+    local pattern = self.screen.tilePatterns:byte(offset + yt + 1)
+    local fgcol = (color >> 4) & 0x0f
+    local bgcol = (color & 0x0f)
+
+    self:paintByte(self.img, x, y+yt, pattern, fgcol, bgcol, false)
+  end
+
+  return nil
+end
+
+
+
+-- ########################################################
 --     ReaderSC2
 -- ########################################################
 
@@ -569,8 +613,8 @@ function ReaderSC3:new(o)
   setmetatable(rdr, self)
   self.__index = self
 
-  rdr.screen.maxWidth = 64
-  rdr.screen.maxHeight = 48
+  rdr.screen.maxWidth = 256
+  rdr.screen.maxHeight = 192
   rdr.screen.maxColors = 16
   rdr.screen.paletteRes = "MSX1_DEFAULT"
 
@@ -588,16 +632,12 @@ function ReaderSC3:paintBitmapScreen()
   local x = 0
   local y = 0
 
-  if self.screen.tileMap == nil then
-    self:createTileMap()
-  end
-
   for t=1,0x600 do
     offset = (y//8)*256+(y & 7)+(x*4 & 0xf8)
     self:paintBitmapTile(x, y, offset)
 
     x = x + 2
-    if x >= self.screen.maxWidth then
+    if x >= 64 then
       x = 0
       y = y + 1
     end
@@ -608,30 +648,10 @@ end
 function ReaderSC3:paintBitmapTile(x, y, offset)
   local col = self.screen.tileColors:byte(offset+1) or 0
 
--- app.alert(offset..string.format(" %x %x",offset,col))
-  self.img:putPixel(x, y, col >> 4)
-  self.img:putPixel(x+1, y, col & 0x0f)
-end
-
--- ============================
-function ReaderSC3:createTileMap()
-  local vini = 0
-  local map = string.rep(string.char(0), 0x300)
-  for i=0,0x300,0x80 do
-    for v=0,0x20 do
-      changeChar(map, i+v+0x00, string.char(vini+v))
-      changeChar(map, i+v+0x20, string.char(vini+v))
-      changeChar(map, i+v+0x40, string.char(vini+v))
-      changeChar(map, i+v+0x60, string.char(vini+v))
-    end
-    vini = vini + 0x20
+  for px=0,15 do 
+    self.img:putPixel(x*4+px%4, y*4+px//4, col >> 4)
+    self.img:putPixel((x+1)*4+px%4, y*4+px//4, col & 0x0f)
   end
-  self.screen.tileMap = map
-end
-
--- ============================
-function changeChar(str, pos, r)
-    return str:sub(1, pos-1) .. r .. str:sub(pos+1)
 end
 
 
@@ -1119,9 +1139,13 @@ function showFileInfo(dlg)
       ext = ext:sub(-1)
       ret = tonumber("0x"..ext)
       newInfo = "<not implemented yet>"
+      -- SC1
+      if ext == "1" then
+        newType = "MSX Screen 1 tiled file"
+        newInfo = "256x192 16 fixed colors"
       -- SC2
-      if ext == "2" then
-        newType = "MSX Screen 2 file"
+      elseif ext == "2" then
+        newType = "MSX Screen 2 tiled file"
         newInfo = "256x192 16 fixed colors"
       -- SC3
       elseif ext == "3" then
@@ -1129,7 +1153,7 @@ function showFileInfo(dlg)
         newInfo = "64x48 16 fixed colors"
       -- SC4
       elseif ext == "4" then
-        newType = "MSX2 Screen 4 file"
+        newType = "MSX2 Screen 4 tiled file"
         newInfo = "256x192 16col from 512"
       -- SC5
       elseif ext == "5" then
@@ -1191,7 +1215,7 @@ function startDialog()
                 id="filename",
                 label="MSX image file:",
                 open=true,
-                filetypes={ "SC2", "SC3", "SC4", "SC5", "SC6", "SC7", "SC8", "SCA", "SCC" },
+                filetypes={ "SC1", "SC2", "SC3", "SC4", "SC5", "SC6", "SC7", "SC8", "SCA", "SCC" },
                 onchange=function() scrMode = showFileInfo(dlg) end }
               :label{ id="file_type", label="Selected", text="<none>" }
               :newrow()
@@ -1231,7 +1255,9 @@ function startDialog()
       -- From here we can read sprite.filename into our MSX reader.
       local rdr = nil
       
-      if data.scrMode == 2 then
+      if data.scrMode == 1 then
+        rdr = ReaderSC1:new(data)
+      elseif data.scrMode == 2 then
         rdr = ReaderSC2:new(data)
       elseif data.scrMode == 3 then
         rdr = ReaderSC3:new(data)
