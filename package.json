@@ -2,7 +2,7 @@
   "name": "msx-image-import",
   "displayName": "MSX image files import",
   "description": "Import several MSX image file formats",
-  "version": "0.5",
+  "version": "0.9",
   "author": { "name": "NataliaPC",
               "email": "natalia.pujol@gmail.com",
               "url": "https://github.com/nataliapc/aseprite_msx" },
