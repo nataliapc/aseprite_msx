@@ -499,14 +499,20 @@ end
 
 -- ============================
 function Reader:setPalette()
-  -- function overrided for MSX2 or above classes
-end
-
--- ============================
-function Reader:_parsePaletteMSX2()
   if self.screen.palette ~= nil then
     local palette = self.spr.palettes[1]
     local r, g, b
+
+    -- return if the in file palette is empty
+    local empty = 0
+    for i=1,self.screen.palette:len() do
+      if self.screen.palette:byte(i)==0 then
+        empty = empty + 1
+      end
+    end
+    if empty==self.screen.palette:len() then
+      return
+    end
 
     -- the file palette is RGB444 but the MSX hardware is RGB333
     for i=0,self.screen.maxColors-1 do
@@ -605,6 +611,7 @@ function ReaderSC1:new(o)
   rdr.address.tileMap = { pos=0x1800, size=0x300 }
   rdr.address.sprAttr = { pos=0x1b00, size=0x80 }
   rdr.address.tileCol = { pos=0x2000, size=0x20 }
+  rdr.address.palette = { pos=0x2020, size=0x20 }
   rdr.address.sprPat  = { pos=0x3800, size=0x800 }
 
   return rdr
@@ -646,6 +653,7 @@ function ReaderSC2:new(o)
   rdr.address.tilePat = { pos=0x0000, size=0x1800 }
   rdr.address.tileMap = { pos=0x1800, size=0x300 }
   rdr.address.sprAttr = { pos=0x1b00, size=0x80 }
+  rdr.address.palette = { pos=0x1b80, size=0x20 }
   rdr.address.tileCol = { pos=0x2000, size=0x1800 }
   rdr.address.sprPat  = { pos=0x3800, size=0x800 }
 
@@ -672,6 +680,7 @@ function ReaderSC3:new(o)
 
   rdr.address.tileCol = { pos=0x0000, size=0x0600 } -- Block colors
   rdr.address.tileMap = { pos=0x0800, size=0x300 }
+  rdr.address.palette = { pos=0x0f00, size=0x20 }
   rdr.address.sprAttr = { pos=0x1b00, size=0x80 }
   rdr.address.sprPat  = { pos=0x3800, size=0x800 }
 
@@ -736,11 +745,6 @@ function ReaderSC4:new(o)
 end
 
 -- ============================
-function ReaderSC4:setPalette()
-  self:_parsePaletteMSX2()
-end
-
--- ============================
 function ReaderSC4:getSpriteLayerAttribs(layer)
   return self:_getSpriteLayerAttribsMode2(layer)
 end
@@ -789,11 +793,6 @@ function ReaderBitmapRGB:paintBitmapByte(x, y, colorByte)
     y = y + 1
   end
   return x, y
-end
-
--- ============================
-function ReaderBitmapRGB:setPalette()
-  self:_parsePaletteMSX2()
 end
 
 -- ============================
@@ -979,11 +978,6 @@ function ReaderBitmapYJK:createImage()
   -- Bitmap Layer
   self.spr.layers[1].name = "Layer Bitmap"
   self.img = self.spr.cels[1].image
-end
-
--- ============================
-function ReaderBitmapYJK:setPalette()
-  self:_parsePaletteMSX2()
 end
 
 -- ============================
