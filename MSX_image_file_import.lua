@@ -16,17 +16,23 @@
 	Code inspired by
     https://github.com/kettek/aseprite-scripts/blob/master/import-apng.lua
  --]]
-local version = "v0.9"
+local version = "v1.0"
+local plugin
 
-function init(plugin)
+function init(globalPlugin)
   print("MSX image file import plugin initialized...")
 
---  if plugin.preferences.sprRender == nil then
---    plugin.preferences.sprRender = true
---  end
---  if plugin.preferences.sprSize == nil then
---    plugin.preferences.spr16 = true
---  end
+  plugin = globalPlugin
+
+  if plugin.preferences.sprRender == nil then
+    plugin.preferences.sprRender = true
+  end
+  if plugin.preferences.sprSize == nil then
+    plugin.preferences.spr16 = true
+  end
+  if plugin.preferences.tilesLayer == nil then
+    plugin.preferences.tilesLayer = true
+  end
 
   plugin:newCommand{
     id="msx_image_import",
@@ -47,8 +53,8 @@ end
 
 -- ########################################################
 
---[[ Binary
-Binary provides a few helper function for decoding and comparing bytes.
+--[[ Array
+Array provides a few helper function for array management.
 --]]
 Array = {}
 
@@ -167,7 +173,9 @@ Reader = {
   spr = nil,            -- Sprite object
   img = nil,            -- Image object
   imgSpr = nil,         -- Image layer for Sprites
+  imgTiles = nil,       -- Image layer for Raw Tiles
   sprRender = false,    -- Flag to know if Sprite Layer must be created
+  tilesLayer = false,   -- Flag to create a Raw Tiles Layer or not
   sprSize = 32,         -- sprites size in bytes
 
   address = {
@@ -215,7 +223,8 @@ end
 function Reader:config(o)
   self.filename = o.filename
   self.file = io.open(o.filename, "rb")
-  self.sprRender = o.spr_render
+  self.sprRender = o.chk_sprRender
+  self.tilesLayer = o.chk_tilesLayer
 
   self.screen.mode = o.scrMode
 
@@ -261,6 +270,12 @@ function Reader:decode()
     if err ~= nil then return err end
   end
 
+  -- paint raw tiles
+  if self.tilesLayer then
+    err = self:paintTilesLayer()
+    if err ~= nil then return err end
+  end
+
   return err
 end
 
@@ -294,15 +309,27 @@ function Reader:createImage()
   -- Bitmap Layer
   self.spr.layers[1].name = "Layer Bitmap"
   self.img = self.spr.cels[1].image
-  self.img:clear(self.screen.maxColors)
+  self.img:clear()
 
   -- Sprite Layer
   if self.sprRender then
     layer = self.spr:newLayer()
     layer.name = "Layer Sprites"
+--    layer.isTransparent = true
     cel = self.spr:newCel(layer, self.spr.frames[1])
     self.imgSpr = cel.image
-    self.imgSpr:clear(self.screen.maxColors)
+    self.imgSpr:clear()
+  end
+
+  -- Raw Tiles Layer
+  if self.tilesLayer then
+    layer = self.spr:newLayer()
+    layer.name = "Layer Raw Tiles"
+--    layer.isTransparent = false
+    layer.isVisible = false
+    cel = self.spr:newCel(layer, self.spr.frames[1])
+    self.imgTiles = cel.image
+    self.imgTiles:clear(0)
   end
 end
 
@@ -335,12 +362,12 @@ function Reader:paintBitmapScreen()
   local y = 0
   local err = nil
 
-  for t=1,0x300 do
+  for t=1,self.screen.tileMap:len() do
     tile = self.screen.tileMap:byte(t)
     offset = 0x800 * math.floor(y/64) -- banks offset
     offset = offset + tile * 8        -- adding tile offset
 
-    err = self:paintBitmapTile(x, y, offset)
+    err = self:paintBitmapTile(self.img, x, y, offset)
     if err ~= nil then return err end
 
     x = x + 8
@@ -514,7 +541,32 @@ function ReaderTiled:new(o)
 end
 
 -- ============================
-function ReaderTiled:paintBitmapTile(x, y, offset)
+function Reader:paintTilesLayer()
+  local tile
+  local offset
+  local x = 0
+  local y = 0
+  local err = nil
+  local numTiles = self.address.tilePat.size / 0x800 * 0x100
+
+  for t=0,numTiles-1 do
+    tile = t % 256
+    offset = 0x800 * math.floor(y/64) -- banks offset
+    offset = offset + tile * 8        -- adding tile offset
+
+    err = self:paintBitmapTile(self.imgTiles, x, y, offset)
+    if err ~= nil then return err end
+
+    x = x + 8
+    if x == self.screen.maxWidth then
+      x = 0
+      y = y + 8
+    end
+  end
+end
+
+-- ============================
+function ReaderTiled:paintBitmapTile(img, x, y, offset)
   if offset >= self.screen.tileColors:len() then
     return Error(E.TILESET_OVERFLOW);
   end
@@ -525,7 +577,7 @@ function ReaderTiled:paintBitmapTile(x, y, offset)
     local fgcol = (color >> 4) & 0x0f
     local bgcol = (color & 0x0f)
 
-    self:paintByte(self.img, x, y+yt, pattern, fgcol, bgcol, false)
+    self:paintByte(img, x, y+yt, pattern, fgcol, bgcol, false)
   end
 
   return nil
@@ -559,7 +611,7 @@ function ReaderSC1:new(o)
 end
 
 -- ============================
-function ReaderSC1:paintBitmapTile(x, y, offset)
+function ReaderSC1:paintBitmapTile(img, x, y, offset)
   offset = offset % 0x800
   local color = self.screen.tileColors:byte(offset//64 + 1)
   for yt=0,7 do
@@ -567,7 +619,7 @@ function ReaderSC1:paintBitmapTile(x, y, offset)
     local fgcol = (color >> 4) & 0x0f
     local bgcol = (color & 0x0f)
 
-    self:paintByte(self.img, x, y+yt, pattern, fgcol, bgcol, false)
+    self:paintByte(img, x, y+yt, pattern, fgcol, bgcol, false)
   end
 
   return nil
@@ -634,7 +686,7 @@ function ReaderSC3:paintBitmapScreen()
 
   for t=1,0x600 do
     offset = (y//8)*256+(y & 7)+(x*4 & 0xf8)
-    self:paintBitmapTile(x, y, offset)
+    self:paintBitmapTile(self.img, x, y, offset)
 
     x = x + 2
     if x >= 64 then
@@ -645,12 +697,12 @@ function ReaderSC3:paintBitmapScreen()
 end
 
 -- ============================
-function ReaderSC3:paintBitmapTile(x, y, offset)
+function ReaderSC3:paintBitmapTile(img, x, y, offset)
   local col = self.screen.tileColors:byte(offset+1) or 0
 
   for px=0,15 do 
-    self.img:putPixel(x*4+px%4, y*4+px//4, col >> 4)
-    self.img:putPixel((x+1)*4+px%4, y*4+px//4, col & 0x0f)
+    img:putPixel(x*4+px%4, y*4+px//4, col >> 4)
+    img:putPixel((x+1)*4+px%4, y*4+px//4, col & 0x0f)
   end
 end
 
@@ -866,8 +918,6 @@ function ReaderSC8:new(o)
   setmetatable(rdr, self)
   self.__index = self
 
-  rdr.sprRender = false
-
   rdr.screen.maxWidth = 256
   rdr.screen.maxHeight = 212
   rdr.screen.maxColors = 256
@@ -1053,8 +1103,6 @@ function ReaderSCA:new(o)
   setmetatable(rdr, self)
   self.__index = self
 
-  rdr.sprRender = false
-
   rdr.screen.maxWidth = 256
   rdr.screen.maxHeight = 212
   rdr.screen.maxColors = 16
@@ -1103,8 +1151,6 @@ function ReaderSCC:new(o)
   setmetatable(rdr, self)
   self.__index = self
 
-  rdr.sprRender = false
-
   rdr.screen.maxWidth = 256
   rdr.screen.maxHeight = 212
   rdr.screen.maxColors = 16
@@ -1128,11 +1174,14 @@ function showFileInfo(dlg)
   local ret = nil
   local newType = "<unknown file format>"
   local newInfo = ""
-  local newOkEnabled = true
+  local newTilesLayer = false
+  local newBtnOkEnabled = true
   local newInfoVisible = false
+  local newRenderSprites = true
 
   if dlg.data.filename == nil then
     newType = "<none>"
+    newBtnOkEnabled = false
   else
     local ext = dlg.data.filename:upper():sub(-4)
     if ext:sub(1,3) == ".SC" then
@@ -1143,10 +1192,12 @@ function showFileInfo(dlg)
       if ext == "1" then
         newType = "MSX Screen 1 tiled file"
         newInfo = "256x192 16 fixed colors"
+        newTilesLayer = true
       -- SC2
       elseif ext == "2" then
         newType = "MSX Screen 2 tiled file"
         newInfo = "256x192 16 fixed colors"
+        newTilesLayer = true
       -- SC3
       elseif ext == "3" then
         newType = "MSX Screen 3 file"
@@ -1155,6 +1206,7 @@ function showFileInfo(dlg)
       elseif ext == "4" then
         newType = "MSX2 Screen 4 tiled file"
         newInfo = "256x192 16col from 512"
+        newTilesLayer = true
       -- SC5
       elseif ext == "5" then
         newType = "MSX2 Screen 5 file"
@@ -1171,16 +1223,19 @@ function showFileInfo(dlg)
       elseif ext == "8" then
         newType = "MSX2 Screen 8 file"
         newInfo = "256x212 256 fixed col"
+        newRenderSprites = false
       -- SCA
       elseif ext == "A" then
         newType = "MSX2+ Screen 10 file"
         newInfo = "256x212 12k YJK + 16 RGB"
+        newRenderSprites = false
       -- SCC
       elseif ext == "C" then
         newType = "MSX2+ Screen 12 file"
         newInfo = "256x212 19k YJK Colors"
+        newRenderSprites = false
       else
-        newOkEnabled = false
+        newBtnOkEnabled = false
       end
     end
   end
@@ -1188,14 +1243,43 @@ function showFileInfo(dlg)
   if newInfo ~= "" then
     newInfoVisible = true
   else
+    newBtnOkEnabled = false
     ret = nil
   end
 
+  -- filetype
   dlg:modify{ id="file_type", text=newType }
   dlg:modify{ id="file_info", text=newInfo, visible=newInfoVisible }
-  dlg:modify{ id="ok", enabled=newOkEnabled }
+  -- render sprites
+  dlg:modify{ id="chk_sprRender",
+    selected=newRenderSprites and plugin.preferences.sprRender, 
+    enabled=newRenderSprites
+  }
+  dlg:modify{ id="spr8", enabled=plugin.preferences.sprRender }
+  dlg:modify{ id="spr16", enabled=plugin.preferences.sprRender }
+  -- raw tiles layer
+  dlg:modify{ id="chk_tilesLayer", 
+    visible=newTilesLayer, 
+    enabled=newTilesLayer , 
+    selected=newTilesLayer and plugin.preferences.tilesLayer
+  }
+  -- buttons
+  dlg:modify{ id="ok", enabled=newBtnOkEnabled }
 
   return ret
+end
+
+function typeof(var)
+    local _type = type(var);
+    if(_type ~= "table" and _type ~= "userdata") then
+        return _type;
+    end
+    local _meta = getmetatable(var);
+    if(_meta ~= nil and _meta._NAME ~= nil) then
+        return _meta._NAME;
+    else
+        return _type;
+    end
 end
 
 --! Script Body !--
@@ -1217,24 +1301,32 @@ function startDialog()
                 open=true,
                 filetypes={ "SC1", "SC2", "SC3", "SC4", "SC5", "SC6", "SC7", "SC8", "SCA", "SCC" },
                 onchange=function() scrMode = showFileInfo(dlg) end }
-              :label{ id="file_type", label="Selected", text="<none>" }
+              :label{ id="file_type", label="Selected image:", text="<none>" }
               :newrow()
               :label{ id="file_info", text="", visible=false }
               :separator()
-              :check{ id="spr_render",
-                label="Render sprites",
-                selected=true,
+              :check{ id="chk_sprRender",
+                label="Render sprites:",
+                text="Sprite size:",
+                selected=plugin.preferences.sprRender,
                 onclick = function()
-                  dlg:modify{ id="spr8", enabled=dlg.data.spr_render }
-                  dlg:modify{ id="spr16", enabled=dlg.data.spr_render }
+                  plugin.preferences.sprRender = dlg.data.chk_sprRender
+                  dlg:modify{ id="spr8", enabled=dlg.data.chk_sprRender }
+                  dlg:modify{ id="spr16", enabled=dlg.data.chk_sprRender }
                 end }
               :radio{ id="spr8",
-                label="Sprite size",
                 text="8x8 pixels",
                 selected=false }
               :radio{ id="spr16",
                 text="16x16 pixels",
                 selected=true }
+              :check{ id="chk_tilesLayer",
+                label="Add layer w/ raw tiles:", 
+                selected=false,
+                visible=false,
+                onclick = function()
+                  plugin.preferences.tilesLayer = dlg.data.chk_tilesLayer
+                end }
               :separator()
               :button{ id="ok", text="Ok", enabled=false }
               :button{ id="cancel", text="Cancel" }
@@ -1281,6 +1373,10 @@ function startDialog()
         local err = rdr:decode()
         if err ~= nil then
           app.alert(err:string())
+        else
+          if data.scrMode==6 or data.scrMode==7 then
+            app.alert("You need to change manually the Pixel Aspect Ratio to (1:2). Press [Ctrl+P]")
+          end
         end
       end
     end
