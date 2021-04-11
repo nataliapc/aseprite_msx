@@ -27,11 +27,14 @@ function init(globalPlugin)
   if plugin.preferences.sprRender == nil then
     plugin.preferences.sprRender = true
   end
-  if plugin.preferences.sprSize == nil then
+  if plugin.preferences.spr16 == nil then
     plugin.preferences.spr16 = true
   end
   if plugin.preferences.tilesLayer == nil then
     plugin.preferences.tilesLayer = true
+  end
+  if plugin.preferences.alert_pixelratio == nil then
+    plugin.preferences.alert_pixelratio = true
   end
 
   plugin:newCommand{
@@ -1293,6 +1296,7 @@ function startDialog()
                 id="filename",
                 label="MSX image file:",
                 open=true,
+                focus=true,
                 filetypes={ "SC1", "SC2", "SC3", "SC4", "SC5", "SC6", "SC7", "SC8", "SCA", "SCC" },
                 onchange=function() scrMode = showFileInfo(dlg) end }
               :label{ id="file_type", label="Selected image:", text="<none>" }
@@ -1310,10 +1314,16 @@ function startDialog()
                 end }
               :radio{ id="spr8",
                 text="8x8 pixels",
-                selected=false }
+                selected=plugin.preferences.spr16==false,
+                onclick = function()
+                  plugin.preferences.spr16 = false
+                end }
               :radio{ id="spr16",
                 text="16x16 pixels",
-                selected=true }
+                selected=plugin.preferences.spr16==true,
+                onclick = function()
+                  plugin.preferences.spr16 = true
+                end }
               :check{ id="chk_tilesLayer",
                 label="Add layer w/ raw tiles:", 
                 selected=false,
@@ -1368,8 +1378,20 @@ function startDialog()
         if err ~= nil then
           app.alert(err:string())
         else
-          if data.scrMode==6 or data.scrMode==7 then
-            app.alert("You need to change manually the Pixel Aspect Ratio to (1:2). Press [Ctrl+P]")
+          if plugin.preferences.alert_pixelratio and (data.scrMode==6 or data.scrMode==7) then
+            local dlg = Dialog("ADVICE: Pixel aspect ratio")
+            dlg
+              :label{ text="You need to change manually the Pixel Aspect Ratio to (1:2)" }
+              :newrow()
+              :label{ text="Press [Ctrl+P] after closing this message." }
+              :check{ id="chk_showAgain",
+                text="Always show this alert", 
+                selected=true,
+                onclick = function()
+                  plugin.preferences.alert_pixelratio = dlg.data.chk_showAgain
+                end }
+              :button{ id="ok", text="Close", focus=true }
+              :show()
           end
         end
       end
