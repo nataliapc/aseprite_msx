@@ -286,7 +286,7 @@ function startLoadDialog()
         else
           if data.scrMode==6 or data.scrMode==7 then
             if app.version >= Version("1.2.27") then
-              rdr.spr.pixelRatio = Size(1.1,2)
+              rdr.spr.pixelRatio = Size(1,2)
             elseif plugin.preferences.alert_pixelratio then
               local dlg = Dialog("ADVICE: Pixel aspect ratio")
               dlg
