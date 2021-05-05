@@ -11,6 +11,10 @@
 -- ########################################################
 ScreenMode = {
 
+  descName = "",        -- general name of the screen mode
+  descFormat = "",      -- description of the screen format
+  renderSprites = true, -- aseprite can render his sprites
+
   address = {
     tileMap = nil,
     tilePat = nil,
@@ -78,6 +82,9 @@ function ScreenMode1:new()
   setmetatable(o, self)
   self.__index = self
 
+  o.descName = "MSX Screen 1 tiled file"
+  o.descFormat = "256x192 16 fixed colors"
+
   o.screen.mode = 1
   o.screen.maxWidth  = 256
   o.screen.maxHeight = 192
@@ -106,6 +113,9 @@ function ScreenMode2:new()
   o = ScreenMode:new()
   setmetatable(o, self)
   self.__index = self
+
+  o.descName = "MSX Screen 2 tiled file"
+  o.descFormat = "256x192 16 fixed colors"
 
   o.screen.mode = 2
   o.screen.maxWidth  = 256
@@ -136,6 +146,9 @@ function ScreenMode3:new()
   setmetatable(o, self)
   self.__index = self
 
+  o.descName = "MSX Screen 3 file"
+  o.descFormat = "64x48 16 fixed colors"
+
   o.screen.mode = 3
   o.screen.maxWidth  = 256
   o.screen.maxHeight = 192
@@ -163,6 +176,9 @@ function ScreenMode4:new()
   o = ScreenMode:new()
   setmetatable(o, self)
   self.__index = self
+
+  o.descName = "MSX2 Screen 4 tiled file"
+  o.descFormat = "256x192 16col from 512"
 
   o.screen.mode = 4
   o.screen.maxWidth  = 256
@@ -194,6 +210,9 @@ function ScreenMode5:new()
   setmetatable(o, self)
   self.__index = self
 
+  o.descName = "MSX2 Screen 5 bitmap file"
+  o.descFormat = "256x192 16col from 512"
+
   o.screen.mode = 5
   o.screen.maxWidth  = 256
   o.screen.maxHeight = 212
@@ -221,6 +240,9 @@ function ScreenMode6:new()
   o = ScreenMode:new()
   setmetatable(o, self)
   self.__index = self
+
+  o.descName = "MSX2 Screen 6 bitmap file"
+  o.descFormat = "256x192 4col from 512"
 
   o.screen.mode = 6
   o.screen.maxWidth  = 512

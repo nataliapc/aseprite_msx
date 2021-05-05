@@ -31,10 +31,11 @@ dofile("./writers.lua")
 
 
 function init(globalPlugin)
-  print("MSX image file import plugin initialized...")
+  print("MSX image files plugin initialized...")
 
   plugin = globalPlugin
 
+  -- initialize extension preferences
   if plugin.preferences.sprRender == nil then
     plugin.preferences.sprRender = true
   end
@@ -48,19 +49,31 @@ function init(globalPlugin)
     plugin.preferences.alert_pixelratio = true
   end
 
+  -- add new option at "File" menu
   plugin:newCommand{
     id="msx_image_import",
     title="Import MSX image file",
     group="file_import",
     onclick=function()
-      startDialog()
+      startLoadDialog()
+    end
+  }
+
+  -- add new option at "File" menu
+  plugin:newCommand{
+    id="msx_image_export",
+    title="Export MSX image file",
+    group="file_export",
+    onclick=function()
+      --startSaveDialog()
+      app.alert("Export MSX")
     end
   }
 
 end
 
 function exit(plugin)
-  print("MSX image file import plugin closing...")
+  print("MSX image files plugin closing...")
 end
 
 
@@ -87,53 +100,43 @@ function showFileInfo(dlg)
       ext = ext:sub(-1)
       ret = tonumber("0x"..ext)
       newInfo = "<not implemented yet>"
-      -- SC1
-      if ext == "1" then
+      if ext == "1" then      -- ******************* SC1
         newType = "MSX Screen 1 tiled file"
         newInfo = "256x192 16 fixed colors"
         newTilesLayer = true
-      -- SC2
-      elseif ext == "2" then
+      elseif ext == "2" then  -- ******************* SC2
         newType = "MSX Screen 2 tiled file"
         newInfo = "256x192 16 fixed colors"
         newTilesLayer = true
-      -- SC3
-      elseif ext == "3" then
+      elseif ext == "3" then  -- ******************* SC3
         newType = "MSX Screen 3 file"
         newInfo = "64x48 16 fixed colors"
-      -- SC4
-      elseif ext == "4" then
+      elseif ext == "4" then  -- ******************* SC4
         newType = "MSX2 Screen 4 tiled file"
         newInfo = "256x192 16col from 512"
         newTilesLayer = true
-      -- SC5
-      elseif ext == "5" then
+      elseif ext == "5" then  -- ******************* SC5
         newType = "MSX2 Screen 5 file"
         newInfo = "256x212 16col from 512"
-      -- SC6
-      elseif ext == "6" then
+      elseif ext == "6" then  -- ******************* SC6
         newType = "MSX2 Screen 6 file"
         newInfo = "512x212 4col from 512"
-      -- SC7
-      elseif ext == "7" then
+      elseif ext == "7" then  -- ******************* SC7
         newType = "MSX2 Screen 7 file"
         newInfo = "512x212 16col from 512"
-      -- SC8
-      elseif ext == "8" then
+      elseif ext == "8" then  -- ******************* SC8
         newType = "MSX2 Screen 8 file"
         newInfo = "256x212 256 fixed col"
         newRenderSprites = false
-      -- SCA
-      elseif ext == "A" then
+      elseif ext == "A" then  -- ******************* SCA
         newType = "MSX2+ Screen 10 file"
         newInfo = "256x212 12k YJK + 16 RGB"
         newRenderSprites = false
-      -- SCC
-      elseif ext == "C" then
+      elseif ext == "C" then  -- ******************* SCC
         newType = "MSX2+ Screen 12 file"
         newInfo = "256x212 19k YJK Colors"
         newRenderSprites = false
-      else
+      else  -- ******************* unknown
         newBtnOkEnabled = false
       end
     end
@@ -146,16 +149,17 @@ function showFileInfo(dlg)
     ret = nil
   end
 
+  local spritesEnabled = newRenderSprites and plugin.preferences.sprRender
   -- filetype
   dlg:modify{ id="file_type", text=newType }
   dlg:modify{ id="file_info", text=newInfo, visible=newInfoVisible }
   -- render sprites
   dlg:modify{ id="chk_sprRender",
-    selected=newRenderSprites and plugin.preferences.sprRender, 
-    enabled=newRenderSprites
+    selected = spritesEnabled, 
+    enabled = newRenderSprites
   }
-  dlg:modify{ id="spr8", enabled=plugin.preferences.sprRender }
-  dlg:modify{ id="spr16", enabled=plugin.preferences.sprRender }
+  dlg:modify{ id="spr8", enabled = spritesEnabled }
+  dlg:modify{ id="spr16", enabled = spritesEnabled }
   -- raw tiles layer
   dlg:modify{ id="chk_tilesLayer", 
     visible=newTilesLayer, 
@@ -182,7 +186,7 @@ function typeof(var)
 end
 
 --! Script Body !--
-function startDialog()
+function startLoadDialog()
   if not app.isUIAvailable then
     return
   end
@@ -280,20 +284,24 @@ function startDialog()
         if err ~= nil then
           app.alert(err:string())
         else
-          if plugin.preferences.alert_pixelratio and (data.scrMode==6 or data.scrMode==7) then
-            local dlg = Dialog("ADVICE: Pixel aspect ratio")
-            dlg
-              :label{ text="You need to change manually the Pixel Aspect Ratio to (1:2)" }
-              :newrow()
-              :label{ text="Press [Ctrl+P] after closing this message." }
-              :check{ id="chk_showAgain",
-                text="Always show this alert", 
-                selected=true,
-                onclick = function()
-                  plugin.preferences.alert_pixelratio = dlg.data.chk_showAgain
-                end }
-              :button{ id="ok", text="Close", focus=true }
-              :show()
+          if data.scrMode==6 or data.scrMode==7 then
+            if app.version >= Version("1.2.27") then
+              rdr.spr.pixelRatio = Size(1.1,2)
+            elseif plugin.preferences.alert_pixelratio then
+              local dlg = Dialog("ADVICE: Pixel aspect ratio")
+              dlg
+                :label{ text="You need to change manually the Pixel Aspect Ratio to (1:2)" }
+                :newrow()
+                :label{ text="Press [Ctrl+P] after closing this message." }
+                :check{ id="chk_showAgain",
+                  text="Always show this alert", 
+                  selected=true,
+                  onclick = function()
+                    plugin.preferences.alert_pixelratio = dlg.data.chk_showAgain
+                  end }
+                :button{ id="ok", text="Close", focus=true }
+                :show()
+            end
           end
         end
       end

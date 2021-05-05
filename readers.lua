@@ -1,7 +1,7 @@
 -- ########################################################
 --     Reader class
---  The Reader is the state machine that is responsible for decoding a 
---  MSX file into the active Aseprite sprite.
+--  The Reader is the state machine that is responsible for
+--  decoding a MSX file into the active Aseprite sprite.
 -- ########################################################
 
 Reader = {
