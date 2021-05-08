@@ -116,11 +116,16 @@ end
 
 -- ============================
 function Writer:dumpImagePalette()
-  local palette = self.spr.palettes[1]
+  local maxColors = math.min(self.screen.maxColors, 16)
   local color = 0
+  local palette = self.spr.palettes[1]
+  if self.screen.defaultPalette16==true then
+    palette = Palette{ fromResource="MSX2_DEFAULT" }
+  end
+
   self:seekPos(self.address.palette.pos)
 
-  for i=0,self.screen.maxColors-1 do
+  for i=0,maxColors-1 do
     color = palette:getColor(i)
     color.red = color.red >> 5
     color.green = color.green >> 5
@@ -260,10 +265,13 @@ end
 
 -- ============================
 function WriterBitmapRGB:dumpPixels(x, y)
-  local byte1 = self.img:getPixel(x, y)
-  local byte2 = self.img:getPixel(x+1, y)
-  local bout = ((byte1 & 0x0f) << 4) | (byte2 & 0x0f)
-  self.file:write(string.char(bout)) 
+  local colorMask = self.screen.maxColors - 1
+  local byte = 0
+  for i=0,self.pixelsPerByte-1 do
+    byte = byte << self.bitsPerPixel
+    byte = byte | (self.img:getPixel(x + i, y) & colorMask)
+  end
+  self.file:write(string.char(byte))
 end
 
 

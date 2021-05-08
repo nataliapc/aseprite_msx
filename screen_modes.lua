@@ -32,6 +32,8 @@ ScreenMode = {
     maxHeight = 192,
     maxColors = 16,
     paletteRes = "MSX1_DEFAULT",
+    defaultPalette16 = false,
+
     -- data containers
     tileMap      = nil,   -- used by Screen 1..12
     tilePatterns = nil,   -- used by Screen 1..4
@@ -320,6 +322,7 @@ function ScreenMode8:new()
   o.screen.maxHeight = 212
   o.screen.maxColors = 256
   o.screen.paletteRes = "MSX2_SC8"
+  o.screen.defaultPalette16 = true
 
   o.address.tilePat = { pos=0x0000, size=0xd400 }
   o.address.sprPat  = { pos=0xf000, size=0x800 }
@@ -353,6 +356,7 @@ function ScreenMode10:new()
   o.screen.maxHeight = 212
   o.screen.maxColors = 16
   o.screen.paletteRes = "MSX2_DEFAULT"
+  o.screen.defaultPalette16 = true
 
   o.address.tilePat = { pos=0x0000, size=0xd400 }
   o.address.sprPat  = { pos=0xf000, size=0x800 }
@@ -386,6 +390,7 @@ function ScreenMode12:new()
   o.screen.maxHeight = 212
   o.screen.maxColors = 16
   o.screen.paletteRes = "MSX2_DEFAULT"
+  o.screen.defaultPalette16 = true
 
   o.address.tilePat = { pos=0x0000, size=0xd400 }
   o.address.sprPat  = { pos=0xf000, size=0x800 }
