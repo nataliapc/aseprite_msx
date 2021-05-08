@@ -38,6 +38,21 @@ function Reader:new(input)
 end
 
 -- ============================
+function Reader:getInstance(data)
+  if data.scrMode == 1 then return ReaderSC1:new(data) end
+  if data.scrMode == 2 then return ReaderSC2:new(data) end
+  if data.scrMode == 3 then return ReaderSC3:new(data) end
+  if data.scrMode == 4 then return ReaderSC4:new(data) end
+  if data.scrMode == 5 then return ReaderSC5:new(data) end
+  if data.scrMode == 6 then return ReaderSC6:new(data) end
+  if data.scrMode == 7 then return ReaderSC7:new(data) end
+  if data.scrMode == 8 then return ReaderSC8:new(data) end
+  if data.scrMode == 10 then return ReaderSCA:new(data) end
+  if data.scrMode == 12 then return ReaderSCC:new(data) end
+  return nil
+end
+
+-- ============================
 function Reader:config(input)
   -- initializing object attributes
   self.filename = input.filename

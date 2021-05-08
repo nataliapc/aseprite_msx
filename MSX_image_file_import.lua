@@ -65,8 +65,7 @@ function init(globalPlugin)
     title="Export MSX image file",
     group="file_export",
     onclick=function()
-      --startSaveDialog()
-      app.alert("Export MSX")
+      startSaveDialog()
     end
   }
 
@@ -82,7 +81,7 @@ end
 --     Dialog management
 -- ########################################################
 
-function showFileInfo(dlg)
+function showLoadFileInfo(dlg)
   local ret = nil
   local newType = "<unknown file format>"
   local newInfo = ""
@@ -95,56 +94,20 @@ function showFileInfo(dlg)
     newType = "<none>"
     newBtnOkEnabled = false
   else
-    local ext = dlg.data.filename:upper():sub(-4)
-    if ext:sub(1,3) == ".SC" then
-      ext = ext:sub(-1)
-      ret = tonumber("0x"..ext)
-      newInfo = "<not implemented yet>"
-      if ext == "1" then      -- ******************* SC1
-        newType = "MSX Screen 1 tiled file"
-        newInfo = "256x192 16 fixed colors"
-        newTilesLayer = true
-      elseif ext == "2" then  -- ******************* SC2
-        newType = "MSX Screen 2 tiled file"
-        newInfo = "256x192 16 fixed colors"
-        newTilesLayer = true
-      elseif ext == "3" then  -- ******************* SC3
-        newType = "MSX Screen 3 file"
-        newInfo = "64x48 16 fixed colors"
-      elseif ext == "4" then  -- ******************* SC4
-        newType = "MSX2 Screen 4 tiled file"
-        newInfo = "256x192 16col from 512"
-        newTilesLayer = true
-      elseif ext == "5" then  -- ******************* SC5
-        newType = "MSX2 Screen 5 file"
-        newInfo = "256x212 16col from 512"
-      elseif ext == "6" then  -- ******************* SC6
-        newType = "MSX2 Screen 6 file"
-        newInfo = "512x212 4col from 512"
-      elseif ext == "7" then  -- ******************* SC7
-        newType = "MSX2 Screen 7 file"
-        newInfo = "512x212 16col from 512"
-      elseif ext == "8" then  -- ******************* SC8
-        newType = "MSX2 Screen 8 file"
-        newInfo = "256x212 256 fixed col"
-        newRenderSprites = false
-      elseif ext == "A" then  -- ******************* SCA
-        newType = "MSX2+ Screen 10 file"
-        newInfo = "256x212 12k YJK + 16 RGB"
-        newRenderSprites = false
-      elseif ext == "C" then  -- ******************* SCC
-        newType = "MSX2+ Screen 12 file"
-        newInfo = "256x212 19k YJK Colors"
-        newRenderSprites = false
-      else  -- ******************* unknown
-        newBtnOkEnabled = false
-      end
+    local scrMode = getFileInfo(dlg.data.filename)
+    if scrMode ~= nil then
+      newType = scrMode.descName
+      newInfo = scrMode.descFormat
+      ret = scrMode.screen.mode
     end
+    newTilesLayer = ret==1 or ret==2 or ret==4
+    newRenderSprites = ret < 8
   end
 
   if newInfo ~= "" then
     newInfoVisible = true
   else
+    newInfo = "<unknown file format>"
     newBtnOkEnabled = false
     ret = nil
   end
@@ -170,6 +133,53 @@ function showFileInfo(dlg)
   dlg:modify{ id="ok", enabled=newBtnOkEnabled }
 
   return ret
+end
+
+function showSaveFileInfo(dlg)
+  local ret = nil
+  local newType = "<unknown file format>"
+  local newInfo = ""
+  local newBtnOkEnabled = true
+
+  if dlg.data.filename == nil then
+    newType = "<none>"
+    newBtnOkEnabled = false
+  else
+    local scrMode = getFileInfo(dlg.data.filename)
+    if scrMode ~= nil then
+      newType = scrMode.descName
+      newInfo = scrMode.descFormat
+      ret = scrMode.screen.mode
+    end
+  end
+
+  if newInfo ~= "" then
+    newInfoVisible = true
+  else
+    newInfo = "<unknown file format>"
+    newBtnOkEnabled = false
+    ret = nil
+  end
+
+  -- filetype
+  dlg:modify{ id="file_type", text=newType }
+  dlg:modify{ id="file_info", text=newInfo, visible=newInfoVisible }
+  -- buttons
+  dlg:modify{ id="ok", enabled=newBtnOkEnabled }
+
+  return ret
+end
+
+function getFileInfo(filename)
+  local ret = nil
+  local ext = filename:upper():sub(-4)
+
+  if ext:sub(1,3) == ".SC" then
+    ext = ext:sub(-1)
+    ret = tonumber("0x"..ext)
+    return ScreenMode:getInstance(ret)
+  end
+  return nil
 end
 
 function typeof(var)
@@ -204,7 +214,8 @@ function startLoadDialog()
                 open=true,
                 focus=true,
                 filetypes={ "SC1", "SC2", "SC3", "SC4", "SC5", "SC6", "SC7", "SC8", "SCA", "SCC" },
-                onchange=function() scrMode = showFileInfo(dlg) end }
+                onchange=function() scrMode = showLoadFileInfo(dlg) end }
+              :separator()
               :label{ id="file_type", label="Selected image:", text="<none>" }
               :newrow()
               :label{ id="file_info", text="", visible=false }
@@ -237,7 +248,7 @@ function startLoadDialog()
                 onclick = function()
                   plugin.preferences.tilesLayer = dlg.data.chk_tilesLayer
                 end }
-              :separator()
+              :label{ label="-----------------", text="----------------------------------" }
               :button{ id="ok", text="Ok", enabled=false }
               :button{ id="cancel", text="Cancel" }
               :label{ label="by NataliaPC'2021" }
@@ -255,29 +266,7 @@ function startLoadDialog()
       app.alert("  File not found  ")
     else
       -- From here we can read sprite.filename into our MSX reader.
-      local rdr = nil
-      
-      if data.scrMode == 1 then
-        rdr = ReaderSC1:new(data)
-      elseif data.scrMode == 2 then
-        rdr = ReaderSC2:new(data)
-      elseif data.scrMode == 3 then
-        rdr = ReaderSC3:new(data)
-      elseif data.scrMode == 4 then
-        rdr = ReaderSC4:new(data)
-      elseif data.scrMode == 5 then
-        rdr = ReaderSC5:new(data)
-      elseif data.scrMode == 6 then
-        rdr = ReaderSC6:new(data)
-      elseif data.scrMode == 7 then
-        rdr = ReaderSC7:new(data)
-      elseif data.scrMode == 8 then
-        rdr = ReaderSC8:new(data)
-      elseif data.scrMode == 10 then
-        rdr = ReaderSCA:new(data)
-      elseif data.scrMode == 12 then
-        rdr = ReaderSCC:new(data)
-      end
+      local rdr = Reader:getInstance(data)
 
       if rdr ~= nil then
         local err = rdr:decode()
@@ -307,5 +296,95 @@ function startLoadDialog()
       end
     end
   end
+end
 
+function startSaveDialog()
+  if not app.isUIAvailable then
+    return
+  end
+
+  if app.activeSprite==nil then
+    app.alert("  No active image found!  ")
+    return
+  end
+
+  local w = app.activeSprite.width
+  local h = app.activeSprite.height
+  local ext = nil;
+  if w==512 and h==212 then
+    ext = { "SC6", "SC7" }
+  elseif (w==256) then
+    if h==212 then
+      ext = { "SC5", "SC8", "SCA", "SCC" }
+    elseif h==192 then
+      ext = { "SC1", "SC2", "SC3", "SC4" }
+    end
+  end
+  if ext==nil then
+    app.alert("  Current valid image sizes are: 256x192, 256x212 and 512x212  ")
+    return
+  end
+
+  local layers = {}
+  for i=1,#app.activeSprite.layers do
+    layers[i] = app.activeSprite.layers[i].name
+  end
+
+  local scrMode = 0
+  local dlg = nil
+  local data = nil
+  local cancel = false
+  local info1 = app.activeSprite.width.."x"..app.activeSprite.height
+  local info2 = ""
+  if app.activeSprite.colorMode == ColorMode.INDEXED then
+    info1 = info1.." Indexed image"
+    info2 = countColors(app.activeSprite).." solid colors"
+  else
+    info1 = info1.." Bitmap image"
+  end
+  repeat
+    dlg = Dialog("Export MSX image file "..version)
+    data = dlg
+              :label{ label="Current image:", text=info1 }
+              :newrow()
+              :label{ text=info2, visible=info2~="" }
+              :separator()
+              :file{
+                id="filename",
+                label="MSX image file:",
+                open=false,
+                save=true,
+                focus=true,
+                filetypes=ext,
+                onchange=function() scrMode = showSaveFileInfo(dlg) end }
+              :combobox{ id="layer", label="Layer to save:",
+                option=layers[1],
+                options=layers }
+              :separator()
+              :label{ id="file_type", label="Selected format:", text="<none>" }
+              :newrow()
+              :label{ id="file_info", text="", visible=false }
+              :label{ label="-----------------", text="----------------------------------" }
+              :button{ id="ok", text="Ok", enabled=false }
+              :button{ id="cancel", text="Cancel" }
+              :label{ label="by NataliaPC'2021" }
+              :show().data
+
+    data.scrMode = scrMode
+    if data.ok and data.filename == "" then 
+      app.alert("  Select an output file first  ")
+    end
+  until data.filename ~= "" or data.cancel or (data.cancel or data.ok)==false
+
+  if data.ok then
+    -- From here we can write sprite.filename with our MSX writer.
+    local wrt = Writer:getInstance(data)
+
+    if wrt ~= nil then
+      local err = wrt:encode()
+      if err ~= nil then
+        app.alert(err:string())
+      end
+    end
+  end
 end

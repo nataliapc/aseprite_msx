@@ -84,6 +84,7 @@ function ScreenMode1:new()
 
   o.descName = "MSX Screen 1 tiled file"
   o.descFormat = "256x192 16 fixed colors"
+  o.fileSize = 0x4000
 
   o.screen.mode = 1
   o.screen.maxWidth  = 256
@@ -116,6 +117,7 @@ function ScreenMode2:new()
 
   o.descName = "MSX Screen 2 tiled file"
   o.descFormat = "256x192 16 fixed colors"
+  o.fileSize = 0x4000
 
   o.screen.mode = 2
   o.screen.maxWidth  = 256
@@ -148,6 +150,7 @@ function ScreenMode3:new()
 
   o.descName = "MSX Screen 3 file"
   o.descFormat = "64x48 16 fixed colors"
+  o.fileSize = 0x4000
 
   o.screen.mode = 3
   o.screen.maxWidth  = 256
@@ -179,6 +182,7 @@ function ScreenMode4:new()
 
   o.descName = "MSX2 Screen 4 tiled file"
   o.descFormat = "256x192 16col from 512"
+  o.fileSize = 0x4000
 
   o.screen.mode = 4
   o.screen.maxWidth  = 256
@@ -211,7 +215,8 @@ function ScreenMode5:new()
   self.__index = self
 
   o.descName = "MSX2 Screen 5 bitmap file"
-  o.descFormat = "256x192 16col from 512"
+  o.descFormat = "256x212 16col from 512"
+  o.fileSize = 0x8000
 
   o.screen.mode = 5
   o.screen.maxWidth  = 256
@@ -242,7 +247,8 @@ function ScreenMode6:new()
   self.__index = self
 
   o.descName = "MSX2 Screen 6 bitmap file"
-  o.descFormat = "256x192 4col from 512"
+  o.descFormat = "512x212 4col from 512"
+  o.fileSize = 0x8000
 
   o.screen.mode = 6
   o.screen.maxWidth  = 512
@@ -272,6 +278,10 @@ function ScreenMode7:new()
   setmetatable(o, self)
   self.__index = self
 
+  o.descName = "MSX2 Screen 7 bitmap file"
+  o.descFormat = "512x212 16col from 512"
+  o.fileSize = 0xfaa0
+
   o.screen.mode = 7
   o.screen.maxWidth  = 512
   o.screen.maxHeight = 212
@@ -299,6 +309,11 @@ function ScreenMode8:new()
   o = ScreenMode:new()
   setmetatable(o, self)
   self.__index = self
+
+  o.descName = "MSX2 Screen 8 bitmap file"
+  o.descFormat = "256x212 256 fixed col"
+  o.fileSize = 0xfaa0
+  o.renderSprites = false
 
   o.screen.mode = 8
   o.screen.maxWidth  = 256
@@ -328,6 +343,11 @@ function ScreenMode10:new()
   setmetatable(o, self)
   self.__index = self
 
+  o.descName = "MSX2+ Screen 10 bitmap file"
+  o.descFormat = "256x212 12k YJK + 16 RGB"
+  o.fileSize = 0xfaa0
+  o.renderSprites = false
+
   o.screen.mode = 10
   o.screen.maxWidth  = 256
   o.screen.maxHeight = 212
@@ -355,6 +375,11 @@ function ScreenMode12:new()
   o = ScreenMode:new()
   setmetatable(o, self)
   self.__index = self
+
+  o.descName = "MSX2+ Screen 12 bitmap file"
+  o.descFormat = "256x212 19k YJK colors"
+  o.fileSize = 0xfaa0
+  o.renderSprites = false
 
   o.screen.mode = 12
   o.screen.maxWidth = 256

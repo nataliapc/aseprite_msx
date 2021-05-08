@@ -19,6 +19,20 @@ end
 
 
 -- ########################################################
+function countColors(sprite)
+  local palette = sprite.palettes[1]
+  local numcol = #palette
+  local solid = 0
+  for i=0,numcol-1 do
+    local col = palette:getColor(i)
+    if col.alpha == 255 then solid = solid+1 end
+  end
+  return solid
+end
+
+
+
+-- ########################################################
 
 --[[ ColorYJK
     Provides a few function to manage YJK color space.
@@ -71,6 +85,21 @@ function Binary.toInt(str, bigendian, signed) -- use length of string to determi
     n = (n > 2^(#t*8-1) -1) and (n - 2^(#t*8)) or n
   end
   return n
+end
+
+function Binary.int16ToBytes(num)
+  if num < 0 then 
+      num = num & 0xFFFF
+  end
+
+  highByte = (num & 0xFF00) >> 8
+  lowByte  = num & 0xFF
+
+  -- if bigendian == true then
+  --     lowByte, highByte = highByte, lowByte
+  -- end
+
+  return string.char(lowByte, highByte)
 end
 
 function Binary.compareByte(a, b)
