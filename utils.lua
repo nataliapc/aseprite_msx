@@ -30,6 +30,15 @@ function countColors(sprite)
   return solid
 end
 
+-- ============================
+function decodeTwocomplement6bits(num)
+  local signBit = 0x20
+	if num >= signBit then
+		num = num - (2 * signBit)
+	end
+  return num
+end
+
 
 
 -- ########################################################
@@ -45,7 +54,7 @@ function ColorYJK:toRGB(y, j, k)
 
   r = y + j
   g = y + k
-  b = math.ceil(5*y/4.0 - j/2.0 - k/2.0)
+  b = math.ceil(5*y/4.0 - j/2.0 - k/4.0)
 
   r = r * 255 // 31
   g = g * 255 // 31
@@ -56,6 +65,21 @@ function ColorYJK:toRGB(y, j, k)
   b = math.max(math.min(b, 255), 0)
 
   return Color(r, g, b)
+end
+
+-- ============================
+function ColorYJK:toYJK(r, g, b)
+  local y, j, k
+
+  r = r * 31 / 255.0
+  g = g * 31 / 255.0
+  b = b * 31 / 255.0
+
+  y = b/2-0 + r/4.0 + g/8.0
+  j = r - y
+  k = g - y
+
+  return y, j, k
 end
 
 

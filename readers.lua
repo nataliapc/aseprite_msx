@@ -783,15 +783,6 @@ function ReaderBitmapYJK:decodeYJK(colorBytes)
   return y1, y2, y3, y4, j, k
 end
 
--- ============================
-function decodeTwocomplement6bits(num)
-  local signBit = 0x20
-	if num >= signBit then
-		num = num - (2 * signBit)
-	end
-  return num
-end
-
 
 
 -- ########################################################

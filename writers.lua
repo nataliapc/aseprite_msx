@@ -351,6 +351,64 @@ end
 
 -- ============================
 function WriterBitmapYJK:dumpImageToFile()
+  self:seekPos(self.address.tilePat.pos)
+
+  for y=0,self.img.height-1 do
+    for x=0,self.img.width-1,4 do
+      self:dumpPixels(x, y, false)
+    end
+  end
+end
+
+-- ============================
+function WriterBitmapYJK:dumpPixels(x, y, sca)
+  local byte1, byte2, byte3, byte4
+  local y1, y2, y3, y4, j, k, jaux, kaux
+  local pixel
+
+  j = 0
+  k = 0
+
+  pixel = Color(self.img:getPixel(x, y))
+  y1, jaux, kaux = ColorYJK:toYJK(pixel.red, pixel.green, pixel.blue)
+  y1 = math.floor(y1)
+  j = j + jaux
+  k = k + kaux
+
+  pixel = Color(self.img:getPixel(x+1, y))
+  y2, jaux, kaux = ColorYJK:toYJK(pixel.red, pixel.green, pixel.blue)
+  y2 = math.floor(y2)
+  j = j + jaux
+  k = k + kaux
+
+  pixel = Color(self.img:getPixel(x+2, y))
+  y3, jaux, kaux = ColorYJK:toYJK(pixel.red, pixel.green, pixel.blue)
+  y3 = math.floor(y3)
+  j = j + jaux
+  k = k + kaux
+
+  pixel = Color(self.img:getPixel(x+3, y))
+  y4, jaux, kaux = ColorYJK:toYJK(pixel.red, pixel.green, pixel.blue)
+  y4 = math.floor(y4)
+  j = j + jaux
+  k = k + kaux
+
+  j = decodeTwocomplement6bits(math.ceil(j / 4))
+  k = decodeTwocomplement6bits(math.ceil(k / 4))
+
+  byte1 = (y1 << 3) | (k & 0x07)
+  byte2 = (y2 << 3) | ((k>>3) & 0x07)
+  byte3 = (y3 << 3) | (j & 0x07)
+  byte4 = (y4 << 3) | ((j>>3) & 0x07)
+
+  if sca==true then
+    byte1 = byte1 & 0xf7
+    byte2 = byte2 & 0xf7
+    byte3 = byte3 & 0xf7
+    byte4 = byte4 & 0xf7
+  end
+
+  self.file:write(string.char(byte1, byte2, byte3, byte4))
 end
 
 
@@ -366,6 +424,17 @@ function WriterSCA:new(input)
   setmetatable(o, self)
   self.__index = self
   return o
+end
+
+-- ============================
+function WriterBitmapYJK:dumpImageToFile()
+  self:seekPos(self.address.tilePat.pos)
+
+  for y=0,self.img.height-1 do
+    for x=0,self.img.width-1,4 do
+      self:dumpPixels(x, y, true)
+    end
+  end
 end
 
 
