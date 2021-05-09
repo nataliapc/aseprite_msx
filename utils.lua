@@ -45,6 +45,7 @@ end
 
 --[[ ColorYJK
     Provides a few function to manage YJK color space.
+    http://map.grauw.nl/articles/yjk/
 --]]
 ColorYJK = {}
 
@@ -54,7 +55,7 @@ function ColorYJK:toRGB(y, j, k)
 
   r = y + j
   g = y + k
-  b = math.ceil(5*y/4.0 - j/2.0 - k/4.0)
+  b = math.ceil((5*y - 2*j - k) / 4.0)
 
   r = r * 255 // 31
   g = g * 255 // 31
@@ -75,9 +76,9 @@ function ColorYJK:toYJK(r, g, b)
   g = g * 31 / 255.0
   b = b * 31 / 255.0
 
-  y = b/2-0 + r/4.0 + g/8.0
-  j = r - y
-  k = g - y
+  y = (4*b + 2*r + g) / 8.0
+  j = math.ceil(r) - y
+  k = math.ceil(g) - y
 
   return y, j, k
 end
