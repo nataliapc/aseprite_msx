@@ -355,13 +355,13 @@ function WriterBitmapYJK:dumpImageToFile()
 
   for y=0,self.img.height-1 do
     for x=0,self.img.width-1,4 do
-      self:dumpPixels(x, y, false)
+      self:dumpPixels(x, y)
     end
   end
 end
 
 -- ============================
-function WriterBitmapYJK:dumpPixels(x, y, sca)
+function WriterBitmapYJK:dumpPixels(x, y)
   local byte1, byte2, byte3, byte4
   local y1, y2, y3, y4, j, k, jaux, kaux
   local pixel
@@ -401,7 +401,7 @@ function WriterBitmapYJK:dumpPixels(x, y, sca)
   byte3 = (y3 << 3) | (j & 0x07)
   byte4 = (y4 << 3) | ((j>>3) & 0x07)
 
-  if sca==true then
+  if self.screen.mode==10 then
     byte1 = byte1 & 0xf7
     byte2 = byte2 & 0xf7
     byte3 = byte3 & 0xf7
@@ -432,7 +432,7 @@ function WriterBitmapYJK:dumpImageToFile()
 
   for y=0,self.img.height-1 do
     for x=0,self.img.width-1,4 do
-      self:dumpPixels(x, y, true)
+      self:dumpPixels(x, y)
     end
   end
 end
