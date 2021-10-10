@@ -5,6 +5,7 @@
 -- ########################################################
 
 Reader = {
+  className = "Reader",
   msxHeader = "\xFE\x00\x00",
   filename = nil,       -- filename of the MSX file
   file = nil,           -- file reader from io

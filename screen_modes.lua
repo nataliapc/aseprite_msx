@@ -10,6 +10,7 @@
 --  Definition of the MSX Screen modes.
 -- ########################################################
 ScreenMode = {
+  className = "ScreenMode",
 
   descName = "",        -- general name of the screen mode
   descFormat = "",      -- description of the screen format

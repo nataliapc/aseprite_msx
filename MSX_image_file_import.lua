@@ -16,7 +16,7 @@
 	Code inspired by
     https://github.com/kettek/aseprite-scripts/blob/master/import-apng.lua
  --]]
-local version = "v1.0"
+local version = "v1.2"
 local plugin
 
 -- Utils classes
@@ -99,9 +99,9 @@ function showLoadFileInfo(dlg)
       newType = scrMode.descName
       newInfo = scrMode.descFormat
       ret = scrMode.screen.mode
+      newTilesLayer = ret==1 or ret==2 or ret==4
+      newRenderSprites = ret < 8
     end
-    newTilesLayer = ret==1 or ret==2 or ret==4
-    newRenderSprites = ret < 8
   end
 
   if newInfo ~= "" then
@@ -269,7 +269,12 @@ function startLoadDialog()
       local rdr = Reader:getInstance(data)
 
       if rdr ~= nil then
-        local err = rdr:decode()
+        local err = nil
+        if rdr.className ~= nil and rdr.className ~= Err.className then
+          err = rdr:decode()
+        else 
+          err = rdr
+        end
         if err ~= nil then
           app.alert(err:string())
         else
@@ -381,7 +386,12 @@ function startSaveDialog()
     local wrt = Writer:getInstance(data)
 
     if wrt ~= nil then
-      local err = wrt:encode()
+      local err = nil
+      if wrt.className ~= nil and wrt.className ~= Err.className then
+        err = wrt:encode()
+      else 
+        err = wrt
+      end
       if err ~= nil then
         app.alert(err:string())
       end

@@ -6,12 +6,13 @@
 -- ########################################################
 
 Writer = {
+  className = "Writer",
   msxHeader = "\xFE\x00\x00",
   filename = nil,       -- filename of the MSX output file
   file = nil,           -- file writer from io
   fileSize = 0,         -- full file size
   spr = nil,            -- Sprite object
-  img = nil,            -- Image object
+  img = nil,            -- Current Image object
 
   -- From ScreenMode classes
   address = {},
@@ -36,10 +37,10 @@ end
 
 -- ============================
 function Writer:getInstance(data)
-  if data.scrMode == 1 then return WriterSC1:new(data) end
-  if data.scrMode == 2 then return WriterSC2:new(data) end
-  if data.scrMode == 3 then return WriterSC3:new(data) end
-  if data.scrMode == 4 then return WriterSC4:new(data) end
+  if data.scrMode == 1 then return Error(E.UNSUPPORTED_YET, "SC1 Tiled Writer") end -- return WriterSC1:new(data) end
+  if data.scrMode == 2 then return Error(E.UNSUPPORTED_YET, "SC2 Tiled Writer") end -- return WriterSC2:new(data) end
+  if data.scrMode == 3 then return Error(E.UNSUPPORTED_YET, "SC3 Writer") end -- return WriterSC3:new(data) end
+  if data.scrMode == 4 then return Error(E.UNSUPPORTED_YET, "SC4 Tiled Writer") end -- return WriterSC4:new(data) end
   if data.scrMode == 5 then return WriterSC5:new(data) end
   if data.scrMode == 6 then return WriterSC6:new(data) end
   if data.scrMode == 7 then return WriterSC7:new(data) end
@@ -122,6 +123,7 @@ function Writer:dumpImagePalette()
   if self.screen.defaultPalette16==true then
     palette = Palette{ fromResource="MSX2_DEFAULT" }
   end
+  palette:resize(self.screen.maxColors)
 
   self:seekPos(self.address.palette.pos)
 
@@ -256,9 +258,12 @@ function WriterBitmapRGB:dumpImageToFile()
   self.bitsPerPixel = self:getBitsPerPixel()
   self.pixelsPerByte = 8 // self.bitsPerPixel
 
-  for y=0,self.img.height-1 do
-    for x=0,self.img.width-1,self.pixelsPerByte do
-      self:dumpPixels(x, y)
+  local offsetX = self.img.cel.bounds.x
+  local offsetY = self.img.cel.bounds.y
+
+  for y=0,self.spr.height-1 do
+    for x=0,self.spr.width-1,self.pixelsPerByte do
+      self:dumpPixels(x - offsetX, y - offsetY)
     end
   end
 end
@@ -353,9 +358,12 @@ end
 function WriterBitmapYJK:dumpImageToFile()
   self:seekPos(self.address.tilePat.pos)
 
-  for y=0,self.img.height-1 do
-    for x=0,self.img.width-1,4 do
-      self:dumpPixels(x, y)
+  local offsetX = self.img.cel.bounds.x
+  local offsetY = self.img.cel.bounds.y
+
+  for y=0,self.spr.height-1 do
+    for x=0,self.spr.width-1,4 do
+      self:dumpPixels(x - offsetX, y - offsetY)
     end
   end
 end
@@ -424,17 +432,6 @@ function WriterSCA:new(input)
   setmetatable(o, self)
   self.__index = self
   return o
-end
-
--- ============================
-function WriterBitmapYJK:dumpImageToFile()
-  self:seekPos(self.address.tilePat.pos)
-
-  for y=0,self.img.height-1 do
-    for x=0,self.img.width-1,4 do
-      self:dumpPixels(x, y)
-    end
-  end
 end
 
 

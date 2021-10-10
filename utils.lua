@@ -154,13 +154,14 @@ end
 The Err type and helper creator Error(type, msg) provide an interface for
 managing errors during the script's functioning.
 --]]
-local E = {
+E = {
   EOF = 1,
   NOT_MSX_FILE = 2,
   BAD_DIMENSIONS = 3,
   DIMENSION_OVERFLOW = 4,
   PALETTE_NOT_FOUND = 5,
   TILESET_OVERFLOW = 6,
+  UNSUPPORTED_YET = 7,
   strings = {
     "  End of file  ",
     "  Invalid MSX file  ",
@@ -168,9 +169,11 @@ local E = {
     "  Dimension overflow  ",
     "  Palette not found  ",
     "  Tileset overflow  ",
+    "  Feature unsupported yet  ",
   }
 }
-local Err = {
+Err = {
+  className = "Error",
 }
 Err.__index = Err
 function Err:new(t, m)
